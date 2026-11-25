@@ -8,9 +8,14 @@
 // Board = a graph (adjacency lists) or 'mixed' (every neighbour pick is uniform over all cells: the well-mixed limit).
 // The mean-field ODE of the same rules is in meanField(); gate W (see runGate) compares both against Roy & Kirchner 2000.
 export const BASE = { b: 0.30, d: 0.05, alpha: 0.20, beta: 0.60, gamma: 0.02, costR: 0.06, effR: 0.5, costT: 0.06, effT: 0.6, eps: 0.001 };
-export function traits(p) {
-  return { b: [p.b, p.b * (1 - p.costR), p.b * (1 - p.costT)], beta: [p.beta, p.beta * (1 - p.effR), p.beta], alpha: [p.alpha, p.alpha, p.alpha * (1 - p.effT)] };
+// Lineages (11-25, step 1 of the probe game): a genome is (r, t), resist and tolerate levels, r + t <= 1 (one defence budget).
+//   infection x (1 - effR r) · harm x (1 - effT t) · growth x (1 - costR r)(1 - costT t).  S = (0,0), R = (1,0), T = (0,1): the old three, exactly.
+export const SRT = [{ r: 0, t: 0 }, { r: 1, t: 0 }, { r: 0, t: 1 }];
+export function genomeTraits(p, gs) {
+  return { b: gs.map((g) => (g.r === 0 && g.t === 0 ? p.b : g.t === 0 ? p.b * (1 - p.costR * g.r) : g.r === 0 ? p.b * (1 - p.costT * g.t) : p.b * (1 - p.costR * g.r) * (1 - p.costT * g.t))),
+    beta: gs.map((g) => (g.r === 0 ? p.beta : p.beta * (1 - p.effR * g.r))), alpha: gs.map((g) => (g.t === 0 ? p.alpha : p.alpha * (1 - p.effT * g.t))) };
 }
+export function traits(p) { return genomeTraits(p, SRT); }
 // ODE: X_g' = b_g (X_g + Y_g)(1 - N) - d X_g - beta_g X_g F + gamma Y_g ;  Y_g' = beta_g X_g F - (d + alpha_g + gamma) Y_g ;
 //   I = sum Y, N = sum (X + Y), F = I + eps (1 - I) (meet the mould, or else a spore)
 export function meanField(p, x0, steps = 400000, dt = 0.05) {
@@ -27,12 +32,15 @@ export function meanField(p, x0, steps = 400000, dt = 0.05) {
 export const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 // Agent sim as a stepper (11-25, so the board page runs this same code). board: adjacency array, or {mixed: N}. x0: genotype fractions [S, R, T].
 // G[i] = -1 empty, 0 S, 1 R, 2 T; Inf[i] = 1 infected. step() = one tick; count() = { k, freq, density, prevalence }.
-export function makeSim(board, p, x0, { seed = 1, fill = 0.5, inf0 = 0.1 } = {}) {
-  const mixed = !Array.isArray(board), N = mixed ? board.mixed : board.length, r = rng(seed), t = traits(p), eps = p.eps || 0;
+// opts.lineages: genomes (default S, R, T). opts.seeds: [{ lineage, cells: [cell index...] }] places colonies instead of the random fill
+// (then x0 is ignored and nothing starts infected unless inf0 > 0: the spore rain brings the mould).
+export function makeSim(board, p, x0, { seed = 1, fill = 0.5, inf0 = 0.1, lineages = SRT, seeds = null } = {}) {
+  const mixed = !Array.isArray(board), N = mixed ? board.mixed : board.length, r = rng(seed), t = genomeTraits(p, lineages), eps = p.eps || 0, L = lineages.length;
   const G = new Int8Array(N).fill(-1), Inf = new Uint8Array(N), order = new Int32Array(N).map((_, i) => i);
-  for (let i = 0; i < N; i++) if (r() < fill) { const u = r(); G[i] = u < x0[0] ? 0 : u < x0[0] + x0[1] ? 1 : 2; Inf[i] = r() < inf0 ? 1 : 0; }
+  if (seeds) { for (const s of seeds) for (const i of s.cells) if (G[i] < 0) { G[i] = s.lineage; Inf[i] = inf0 > 0 && r() < inf0 ? 1 : 0; } }
+  else for (let i = 0; i < N; i++) if (r() < fill) { const u = r(); let g = 0, acc = x0[0]; while (g < L - 1 && !(u < acc)) acc += x0[++g]; G[i] = g; Inf[i] = r() < inf0 ? 1 : 0; }
   const nb = (i) => { if (mixed) return Math.floor(r() * N); const a = board[i]; return a.length ? a[Math.floor(r() * a.length)] : -1; };
-  const sim = { N, G, Inf, k: 0,
+  const sim = { N, L, G, Inf, k: 0,
     step() {
       for (let i = N - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const tmp = order[i]; order[i] = order[j]; order[j] = tmp; }
       for (const i of order) { const g = G[i]; if (g < 0) continue;
@@ -42,7 +50,7 @@ export function makeSim(board, p, x0, { seed = 1, fill = 0.5, inf0 = 0.1 } = {})
         else if (r() < p.gamma) Inf[i] = 0; }
       sim.k++;
     },
-    count() { const c = [0, 0, 0]; let y = 0, n = 0; for (let i = 0; i < N; i++) if (G[i] >= 0) { c[G[i]]++; n++; y += Inf[i]; }
+    count() { const c = new Array(L).fill(0); let y = 0, n = 0; for (let i = 0; i < N; i++) if (G[i] >= 0) { c[G[i]]++; n++; y += Inf[i]; }
       return { k: sim.k, freq: c.map((v) => (n ? v / n : 0)), density: n / N, prevalence: n ? y / n : 0 }; } };
   return sim;
 }

@@ -41,7 +41,7 @@
     <div class="sub">The board is the edge of a Bristorian Julia set: cells 1/32 wide, linked when they touch (26 neighbours).</div>
     <select id="bsel"></select>
     <h2>View</h2>
-    <div class="seg" id="modes"><button data-m="edge" class="on">edge</button><button data-m="plant">plant G1</button><button data-m="game">lichens</button></div>
+    <div class="seg" id="modes"><button data-m="edge" class="on">edge</button><button data-m="plant">plant G1</button><button data-m="game">lichens</button><button data-m="probe">probe</button></div>
     <div class="legend" id="legEdge">
       <div><span class="ramp"></span></div><div class="note" style="margin:0">colour = neighbours: dark few (thin), pale many</div>
       <div><span class="sw" style="background:#ffffff"></span>chokepoint (articulation cell)</div>
@@ -58,6 +58,26 @@
       <canvas id="chart"></canvas>
       <div id="readout"></div>
       <div class="note" id="gameGate"></div></div>
+    <div class="hidden" id="probePanel">
+      <div class="note" style="margin-top:0">Build a probe: a seed colony on the edge and a genome. It plays a library probe that starts on the far side of the board.</div>
+      <h2>Genome · one defence budget, r + t ≤ 1</h2>
+      <div class="row" id="pGenomeR"><label>resist r</label><input id="gr" type="range" min="0" max="1" step="0.05" value="0.5"><span id="grv"></span></div>
+      <div class="row" id="pGenomeT"><label>tolerate t</label><input id="gt" type="range" min="0" max="1" step="0.05" value="0.5"><span id="gtv"></span></div>
+      <div class="note" id="geff"></div>
+      <h2>Seed</h2>
+      <div class="row" id="pSeed"><span id="seedn" style="flex:1"></span><button id="seedClear">clear</button></div>
+      <div class="note">Click cells on the board to place or remove them (drag still turns it).</div>
+      <h2>Match</h2>
+      <div class="row" id="pOpp"><label>opponent</label><select id="opp"></select></div>
+      <div class="row" id="pPlay"><button id="mplay">▶ match</button><button id="mscore">score ×5</button><span id="mtick" style="color:var(--dim)"></span></div>
+      <div class="row"><label>speed</label><input id="pspeed" type="range" min="1" max="30" value="6"></div>
+      <div class="legend" id="pLegend"><div><span class="sw" style="background:#4c9be8"></span>your probe</div><div><span class="sw" style="background:#e8a33c"></span>opponent</div>
+        <div><span class="sw" style="background:#e5484d"></span>red tint = carrying the mould</div></div>
+      <canvas id="pchart" style="width:100%;height:80px;display:block;background:#0f1215;border:1px solid var(--line);border-radius:4px;margin-top:6px"></canvas>
+      <div id="presult" class="note"></div>
+      <h2>Share</h2>
+      <div class="row" id="pShare"><input id="pcode" style="flex:1;min-width:0;font:11px ui-monospace,monospace;background:#1c2027;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px"><button id="pcopy">copy</button><button id="pload">load</button></div>
+      <div class="note">Not gated on the edge yet: a match is a look, not a result.</div></div>
     <h2>Board stats · run vs page</h2>
     <table id="stats"></table>
     <div class="note" id="statsNote"></div>
@@ -104,15 +124,15 @@ async function load(id) {
   let mis = 0; $('stats').innerHTML = '<tr><th></th><th>run</th><th>page</th></tr>' + rows.map(([l, k]) => { const a = meta.run[k], b = ps[k], m = a !== b; mis += m;
     return `<tr><td>${l}</td><td>${a}</td><td class="${m ? 'mis' : ''}">${b}</td></tr>`; }).join('');
   $('statsNote').textContent = mis ? `${mis} mismatch: the export or this page is wrong. Don't trust the view until it's found.` : 'Recomputed here with the same board.mjs: they agree.';
-  resetGame(); st.dirty = true;
+  resetGame(); if (pr.code) loadCode(pr.code, true); else probeUI(); st.dirty = true;
 }
 function ensurePlant() { if (st.mode !== 'plant' || st.plant) return; st.plant = plantG1(st.board.n, st.board.E); const s = st.plant.s;
   $('legPlant').textContent = `The control. The same ${st.board.n.toLocaleString()} cells, scattered at random in the ball. It must not look like an edge: largest piece ${s.largest_frac}, mean degree ${s.mean_degree} (the edge: ${st.board.s.largest_frac}, ${st.board.s.mean_degree}).`; }
 // ---- modes
 document.querySelectorAll('#modes button').forEach((b) => b.onclick = () => { st.mode = b.dataset.m; document.querySelectorAll('#modes button').forEach((x) => x.classList.toggle('on', x === b));
-  $('legEdge').classList.toggle('hidden', st.mode !== 'edge'); $('legPlant').classList.toggle('hidden', st.mode !== 'plant'); $('gamePanel').classList.toggle('hidden', st.mode !== 'game');
+  $('legEdge').classList.toggle('hidden', st.mode !== 'edge'); $('legPlant').classList.toggle('hidden', st.mode !== 'plant'); $('gamePanel').classList.toggle('hidden', st.mode !== 'game'); $('probePanel').classList.toggle('hidden', st.mode !== 'probe');
   ensurePlant();
-  if (st.mode !== 'game') { st.playing = false; $('play').textContent = '▶ play'; } st.dirty = true; });
+  if (st.mode !== 'game') { st.playing = false; $('play').textContent = '▶ play'; } if (st.mode !== 'probe') stopMatch(); else probeUI(); st.dirty = true; });
 // ---- game
 const P = { ...BASE };
 function resetGame() { const x0 = $('mix').value.split(',').map((v) => (v.includes('/') ? 1 / 3 : +v)); st.sim = makeSim(st.board.adj, P, x0, { seed: 1 }); st.hist = [st.sim.count()]; drawChart(); readout(); st.dirty = true; }
@@ -132,17 +152,87 @@ $('gates').innerHTML = `<b>J3b</b>: the cover is the union over 10 inverse-itera
   `A 20-start audit found that the cells never fully settle (1–6% more turn up), but the graph's stats hold. <b>Plant G1</b> (the "plant G1" view) must not look like an edge. ` +
   `The stats table above is the page checking its own export.`;
 
+// ---- probe game (step 2, 11-25). A probe = genome (r, t) + a seed of up to 12 cells. The opponent is a library genome grown from a 12-cell clump
+// around the cell farthest from your seed's centre. Same rules as everything else: makeSim with two lineages and seeds, spore rain from BASE.
+const SEEDMAX = 12, MATCH_T = 1500, TAIL = 300, LIB = [{ name: 'plain (0, 0)', g: { r: 0, t: 0 } }, { name: 'resister (1, 0)', g: { r: 1, t: 0 } },
+  { name: 'tolerator (0, 1)', g: { r: 0, t: 1 } }, { name: 'half and half (.5, .5)', g: { r: 0.5, t: 0.5 } }];
+const pr = { g: { r: 0.5, t: 0.5 }, seed: [], opp: 0, sim: null, live: false, hist: [], code: '' };
+const YOU = hex('#4c9be8'), OPP = hex('#e8a33c');
+LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; $('opp').append(e); });
+function nearestCell(B, x, y, z) { let best = 0, bd = Infinity; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] - x) ** 2 + (B.pos[3 * i + 1] - y) ** 2 + (B.pos[3 * i + 2] - z) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
+function oppSeed() { const B = st.board; if (!pr.seed.length) return []; let c = [0, 0, 0]; for (const i of pr.seed) for (let d = 0; d < 3; d++) c[d] += B.pos[3 * i + d];
+  let far = 0, fd = -1; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] * pr.seed.length - c[0]) ** 2 + (B.pos[3 * i + 1] * pr.seed.length - c[1]) ** 2 + (B.pos[3 * i + 2] * pr.seed.length - c[2]) ** 2; if (d > fd) { fd = d; far = i; } }
+  const mine = new Set(pr.seed), out = [], seen = new Set([far]), q = [far];
+  while (q.length && out.length < SEEDMAX) { const u = q.shift(); if (!mine.has(u)) out.push(u); for (const v of B.adj[u]) if (!seen.has(v)) { seen.add(v); q.push(v); } }
+  return out; }
+let oppCells = new Set();
+function probeColour(B, i) {
+  if (pr.sim) { const g = pr.sim.G[i]; if (g < 0) return EMPTY; const c = g === 0 ? YOU : OPP; return pr.sim.Inf[i] ? mixc(c, RED, 0.6) : c; }
+  if (pr.seedSet.has(i)) return YOU; if (oppCells.has(i)) return OPP; const c = B.s.comp[i] !== B.s.big ? MAG : ramp((B.deg[i] - 1) / 20); return c.map((v) => v * 0.4);
+}
+pr.seedSet = new Set();
+function effects() { const { r, t } = pr.g, b = (1 - BASE.costR * r) * (1 - BASE.costT * t);
+  return `catches the mould <b>×${(1 - BASE.effR * r).toFixed(2)}</b> · harmed when infected <b>×${(1 - BASE.effT * t).toFixed(2)}</b> · grows <b>×${b.toFixed(3)}</b>`; }
+function probeCode() { const B = st.board; return btoa(JSON.stringify({ v: 1, g: [pr.g.r, pr.g.t], s: pr.seed.map((i) => [0, 1, 2].map((d) => +B.pos[3 * i + d].toFixed(4))) })); }
+function loadCode(code, quiet) { try { const o = JSON.parse(atob(code.trim())); if (o.v !== 1) throw 0; const B = st.board; stopMatch();
+    pr.g = { r: Math.min(1, Math.max(0, +o.g[0])), t: 0 }; pr.g.t = Math.min(1 - pr.g.r, Math.max(0, +o.g[1]));
+    const want = Math.min(SEEDMAX, o.s.length), got = [...new Set(o.s.slice(0, SEEDMAX).map((p) => nearestCell(B, p[0], p[1], p[2])))];
+    // points that snap to the same cell on this board's shape: regrow the lost ones from the snapped cells' neighbours, so the count holds
+    const have = new Set(got), q = [...got]; while (got.length < want && q.length) { const u = q.shift(); for (const v of B.adj[u]) if (!have.has(v) && got.length < want) { have.add(v); got.push(v); q.push(v); } }
+    pr.seed = got; probeUI(); }
+  catch (e) { if (!quiet) $('presult').textContent = 'That code did not load.'; } }
+function probeUI() { if (!st.board) return; pr.seedSet = new Set(pr.seed); oppCells = new Set(oppSeed());
+  $('gr').value = pr.g.r; $('gt').value = pr.g.t; $('grv').textContent = pr.g.r.toFixed(2); $('gtv').textContent = pr.g.t.toFixed(2); $('geff').innerHTML = effects();
+  $('seedn').textContent = `${pr.seed.length} / ${SEEDMAX} cells placed`; pr.code = pr.seed.length ? probeCode() : ''; $('pcode').value = pr.code;
+  $('mplay').disabled = $('mscore').disabled = !pr.seed.length; st.dirty = true; }
+function toggleSeed(i) { stopMatch(); const k = pr.seed.indexOf(i); if (k >= 0) pr.seed.splice(k, 1); else if (pr.seed.length < SEEDMAX) pr.seed.push(i); probeUI(); }
+$('gr').oninput = () => { pr.g.r = +$('gr').value; if (pr.g.r + pr.g.t > 1) pr.g.t = +(1 - pr.g.r).toFixed(2); probeUI(); };
+$('gt').oninput = () => { pr.g.t = +$('gt').value; if (pr.g.r + pr.g.t > 1) pr.g.r = +(1 - pr.g.t).toFixed(2); probeUI(); };
+$('seedClear').onclick = () => { stopMatch(); pr.seed = []; probeUI(); };
+$('opp').onchange = () => { pr.opp = +$('opp').value; stopMatch(); };
+$('pcopy').onclick = () => navigator.clipboard?.writeText($('pcode').value);
+$('pload').onclick = () => loadCode($('pcode').value);
+function newMatch(seed, mine = pr.g) { return makeSim(st.board.adj, P, null, { seed, inf0: 0, lineages: [mine, LIB[pr.opp].g], seeds: [{ lineage: 0, cells: pr.seed }, { lineage: 1, cells: [...oppCells] }] }); }
+function held(sim) { const c = [0, 0]; let y = 0, n = 0; for (let i = 0; i < sim.N; i++) { const g = sim.G[i]; if (g >= 0) { c[g]++; n++; y += sim.Inf[i]; } } return { k: sim.k, you: c[0] / sim.N, opp: c[1] / sim.N, mould: n ? y / n : 0 }; }
+function verdict(rows) { const tail = rows.filter((o) => o.k > MATCH_T - TAIL), m = (f) => tail.reduce((a, o) => a + f(o), 0) / Math.max(1, tail.length); return { you: m((o) => o.you), opp: m((o) => o.opp) }; }
+function stopMatch() { pr.sim = null; pr.live = false; $('mplay').textContent = '▶ match'; $('mtick').textContent = ''; st.dirty = true; }
+$('mplay').onclick = () => { if (pr.sim && pr.live) { pr.live = false; $('mplay').textContent = '▶ resume'; return; } if (pr.sim && !pr.sim.done) { pr.live = true; $('mplay').textContent = '❚❚ pause'; return; }
+  probeUI(); pr.sim = newMatch(1); pr.hist = [held(pr.sim)]; pr.live = true; $('mplay').textContent = '❚❚ pause'; $('presult').textContent = ''; };
+function stepMatch() { const k = +$('pspeed').value; for (let i = 0; i < k && pr.sim.k < MATCH_T; i++) { pr.sim.step(); if (pr.sim.k % 10 === 0) pr.hist.push(held(pr.sim)); }
+  $('mtick').textContent = `tick ${pr.sim.k} / ${MATCH_T}`; drawPChart(pr.hist); st.dirty = true;
+  if (pr.sim.k >= MATCH_T) { pr.live = false; const v = verdict(pr.hist); $('mplay').textContent = '▶ match'; $('presult').innerHTML = say(v); pr.sim = { ...pr.sim, done: true }; } }
+function say(v) { const w = v.you > v.opp ? 'You hold more of the edge' : v.you < v.opp ? 'The opponent holds more of the edge' : 'Level';
+  return `${w}: you <b>${(100 * v.you).toFixed(1)}%</b> vs <b>${(100 * v.opp).toFixed(1)}%</b> of the board (mean of the last ${TAIL} ticks).`; }
+function drawPChart(H) { const c = $('pchart'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
+  const top = Math.max(0.05, ...H.map((o) => Math.max(o.you, o.opp))), X = (i) => (i / Math.max(1, MATCH_T / 10)) * (w - 4) + 2, Y = (v) => h - 3 - (v / top) * (h - 6);
+  const line = (f, col, dash, sc) => { g.strokeStyle = col; g.lineWidth = 1.5 * dpr; g.setLineDash(dash ? [4 * dpr, 3 * dpr] : []); g.beginPath(); H.forEach((o, i) => (i ? g.lineTo : g.moveTo).call(g, X(i), sc ? h - 3 - f(o) * (h - 6) : Y(f(o)))); g.stroke(); };
+  line((o) => o.you, '#4c9be8'); line((o) => o.opp, '#e8a33c'); line((o) => o.mould, '#e5484d', true, true); }
+// score x5 also plays the NULL: your seed with the opponent's genome. Same genome on both sides is not even (11-25: plain vs plain +3.3 points,
+// tolerator vs tolerator -2.2), because placement matters. So the margin splits into a placement edge (the null's margin) and a genome edge (the rest).
+$('mscore').onclick = async () => { stopMatch(); probeUI(); $('mscore').disabled = true; const res = [], nul = [];
+  const run = async (s, g, tag) => { const sim = newMatch(s, g), rows = []; while (sim.k < MATCH_T) { for (let i = 0; i < 50; i++) { sim.step(); if (sim.k % 10 === 0) rows.push(held(sim)); }
+      $('presult').textContent = `scoring… seed ${s} / 5 (${tag}), tick ${sim.k}`; await new Promise((r) => setTimeout(r)); } return verdict(rows); };
+  for (let s = 1; s <= 5; s++) { res.push(await run(s, pr.g, 'your genome')); nul.push(await run(s, LIB[pr.opp].g, 'null: their genome on your seed')); }
+  const wins = res.filter((v) => v.you > v.opp).length, mean = (a) => a.reduce((x, y) => x + y, 0) / a.length, pct = (v) => (100 * v).toFixed(1);
+  const mar = res.map((v) => v.you - v.opp), nmar = nul.map((v) => v.you - v.opp), sd = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
+  const M = mean(mar), N = mean(nmar), se = Math.sqrt((sd(mar) ** 2 + sd(nmar) ** 2) / 5);
+  $('presult').innerHTML = `Over 5 seeds: you win <b>${wins} / 5</b>, holding <b>${pct(mean(res.map((v) => v.you)))}%</b> vs <b>${pct(mean(res.map((v) => v.opp)))}%</b>.<br>` +
+    `Margin <b>${M >= 0 ? '+' : ''}${pct(M)}</b> points = placement edge <b>${N >= 0 ? '+' : ''}${pct(N)}</b> (their genome on your seed) + genome edge <b>${M - N >= 0 ? '+' : ''}${pct(M - N)}</b>.` +
+    ` Noise ≈ ±${pct(2 * se)} on the genome edge${Math.abs(M - N) < 2 * se ? ': <b>too close to call</b>' : ''}.`;
+  $('mscore').disabled = false; };
+
 // ---- render: z-buffered squares, one per cell, shaded by depth
-let img, buf, zb, W = 0, H = 0;
-function size() { const dpr = devicePixelRatio || 1; W = Math.round(cv.clientWidth * dpr); H = Math.round(cv.clientHeight * dpr); cv.width = W; cv.height = H; img = ctx.createImageData(W, H); buf = new Uint32Array(img.data.buffer); zb = new Float32Array(W * H); st.dirty = true; }
+let img, buf, zb, idb, W = 0, H = 0;
+function size() { const dpr = devicePixelRatio || 1; W = Math.round(cv.clientWidth * dpr); H = Math.round(cv.clientHeight * dpr); cv.width = W; cv.height = H; idb = new Int32Array(W * H); img = ctx.createImageData(W, H); buf = new Uint32Array(img.data.buffer); zb = new Float32Array(W * H); st.dirty = true; }
 addEventListener('resize', size); size();
 function colourOf(B, i) {
+  if (st.mode === 'probe' && B === st.board) return probeColour(B, i);
   if (st.mode === 'game' && B === st.board) { const g = st.sim.G[i]; if (g < 0) return EMPTY; return st.sim.Inf[i] ? mixc(GEN[g], RED, 0.65) : GEN[g]; }
   if (B.s.comp[i] !== B.s.big) return MAG; if (B.s.art[i]) return WHITE; return ramp((B.deg[i] - 1) / 20);
 }
 function draw() {
   const B = st.mode === 'plant' ? st.plant : st.board; if (!B) return;
-  const bg = pack(12, 14, 17); buf.fill(bg); zb.fill(-1e9);
+  const bg = pack(12, 14, 17); buf.fill(bg); zb.fill(-1e9); idb.fill(-1);
   const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw), cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
   const scale = (Math.min(W, H) * 0.42 / Math.max(B.R, 0.5)) * st.zoom, ox = W / 2, oy = H / 2, sz = Math.max(1, Math.ceil(scale / B.E)), half = sz / 2, Rr = B.R || 1;
   const p = B.pos;
@@ -152,14 +242,16 @@ function draw() {
     if (px + sz < 0 || py + sz < 0 || px >= W || py >= H) continue;
     const c = colourOf(B, i), f = 0.38 + 0.62 * Math.max(0, Math.min(1, (z2 / Rr + 1) / 2)), col = pack(c[0] * f | 0, c[1] * f | 0, c[2] * f | 0);
     for (let dy = 0; dy < sz; dy++) { const yy = py + dy; if (yy < 0 || yy >= H) continue; let k = yy * W + px;
-      for (let dx = 0; dx < sz; dx++, k++) { const xx = px + dx; if (xx < 0 || xx >= W) continue; if (z2 > zb[k]) { zb[k] = z2; buf[k] = col; } } } }
+      for (let dx = 0; dx < sz; dx++, k++) { const xx = px + dx; if (xx < 0 || xx >= W) continue; if (z2 > zb[k]) { zb[k] = z2; buf[k] = col; idb[k] = i; } } } }
   ctx.putImageData(img, 0, 0);
 }
 // ---- interaction
 let drag = null;
 cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; cv.setPointerCapture(e.pointerId); });
 cv.addEventListener('pointermove', (e) => { if (!drag) return; st.yaw = drag.yaw + (e.clientX - drag.x) * 0.008; st.pitch = Math.max(-1.5, Math.min(1.5, drag.pitch + (e.clientY - drag.y) * 0.008)); st.dirty = true; });
-cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('pointerup', (e) => { const d = drag; drag = null;
+  if (d && st.mode === 'probe' && (!pr.sim || pr.sim.done) && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) { const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect();
+    const x = Math.round((e.clientX - r.left) * dpr), y = Math.round((e.clientY - r.top) * dpr), i = idb[y * W + x]; if (i >= 0) toggleSeed(i); } });
 cv.addEventListener('wheel', (e) => { e.preventDefault(); st.zoom = Math.max(0.3, Math.min(8, st.zoom * Math.exp(-e.deltaY * 0.0012))); st.dirty = true; }, { passive: false });
 cv.addEventListener('dblclick', () => { st.yaw = 0.6; st.pitch = -0.35; st.zoom = 1; st.dirty = true; });
 // ---- loop
@@ -168,6 +260,7 @@ function frame(t) { const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (st.spin && !drag) { st.yaw += dt * 0.18; st.dirty = true; }
   if (st.playing && st.mode === 'game') { const k = +$('speed').value; for (let i = 0; i < k; i++) st.sim.step(); st.hist.push(st.sim.count()); if (st.hist.length > 600) st.hist = st.hist.filter((_, i) => i % 2 === 0);
     readout(); drawChart(); st.dirty = true; if (!st.hist.at(-1).density) { st.playing = false; $('play').textContent = '▶ play'; } }
+  if (pr.sim && pr.live) stepMatch();
   if (st.dirty) { draw(); st.dirty = false; } requestAnimationFrame(frame); }
 const first = IDX.boards.find((b) => b.conv) || IDX.boards[0]; $('bsel').value = first.id; await load(first.id); requestAnimationFrame(frame);
 </script></body></html>

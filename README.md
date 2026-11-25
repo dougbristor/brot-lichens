@@ -92,7 +92,20 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
 - **The game on the edge is not gated.** Gate W is well-mixed only. First look (zero, thirds, tick ~1200): R 0.63, T 0.36, S 0.01, mould 0.20.
   Well-mixed, T fixes. If that holds, the board changes the winner, but no control backs it yet.
 
+## Lineages and the probe game (steps 1–2, 11-25)
+- `lichens.mjs`: a **genome** is (r, t), r + t ≤ 1. Infection ×(1 − 0.5 r), harm ×(1 − 0.6 t), growth ×(1 − 0.06 r)(1 − 0.06 t).
+  `makeSim(..., { lineages, seeds })` runs any number of lineages from placed seeds. Control: S, R and T as lineages (0,0), (1,0), (0,1) reproduce the
+  gate W and ODE logs byte for byte (`runs/gate_agents_lineages_*.log`).
+- The **probe** view in `index.html`. A probe = genome + a seed of up to 12 clicked cells. It plays a library genome (plain, resister, tolerator, half
+  and half) grown from a 12-cell clump around the cell farthest from your seed's centre. A match is 1500 ticks with spore rain; the score is your share
+  of the board over the last 300 ticks. A probe travels as a share code (coordinates, re-snapped to any board, count kept).
+- **Placement matters.** Null control: the same genome on both sides is not even (plain vs plain +3.3 points; tolerator vs tolerator −2.2).
+  So "score ×5" also plays the null (their genome on your seed) and splits the margin: **placement edge + genome edge**, with ±2 SE.
+  First look (zero board): r 0.8 t 0.2 vs plain, genome edge **+15.2 ± 5.5**. Same-genome splits read 0 by construction; that is not a check.
+- Pages: https://dougbristor.github.io/brot-lichens/
+
 ## Next
+0. Step 3: GPU match trainer (WebGPU, batch of matches, budget in GPU-seconds; the CPU `makeSim` is the oracle).
 1. Gate for the game on a graph: a known spatial result (e.g. pair approximation, or a lattice where tolerance/resistance outcomes are published) plus a plant.
 2. The game on the J3b graphs, largest piece only; compare with a same-degree random graph (does the *shape* matter, or only the degree?).
 3. The articulation share is ≈ 0 at 1/32: test finer eps, or use another measure of shape (degree spread, cut size).
