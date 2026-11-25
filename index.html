@@ -71,13 +71,17 @@
       <div class="note">Click cells on the board to place or remove them (drag still turns it).</div>
       <h2>Match</h2>
       <div class="row" id="pOpp"><label>opponent</label><select id="opp"></select></div>
+      <div class="row hidden" id="pOppCode"><input id="ocode" placeholder="paste the opponent's player code" style="flex:1;min-width:0;font:11px ui-monospace,monospace;background:#1c2027;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px"><button id="oload">load opponent</button></div>
+      <div class="note hidden" id="ocodeNote"></div>
       <div class="row" id="pPlay"><button id="mplay">▶ match</button><button id="mscore">score ×5</button><span id="mtick" style="color:var(--dim)"></span></div>
       <div class="row"><label>speed</label><input id="pspeed" type="range" min="1" max="30" value="6"></div>
       <div class="legend" id="pLegend"><div><span class="sw" style="background:#4c9be8"></span>your probe</div><div><span class="sw" style="background:#e8a33c"></span>opponent</div>
         <div><span class="sw" style="background:#e5484d"></span>red tint = carrying the mould</div></div>
       <canvas id="pchart" style="width:100%;height:80px;display:block;background:#0f1215;border:1px solid var(--line);border-radius:4px;margin-top:6px"></canvas>
       <div id="presult" class="note"></div>
-      <h2>Share</h2>
+      <h2>Player code · share or load</h2>
+      <div class="note" style="margin-top:0">A player = this genome + this seed, as one code. Copy it to share. To <b>load</b> a player as yours, paste its code here and press load.
+        To play a code <b>against</b> yours, choose "a player code" as the opponent above.</div>
       <div class="row" id="pShare"><input id="pcode" style="flex:1;min-width:0;font:11px ui-monospace,monospace;background:#1c2027;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px"><button id="pcopy">copy</button><button id="pload">load</button></div>
       <div class="note">Not gated on the edge yet: a match is a look, not a result.</div></div>
     <h2>Board stats · run vs page</h2>
@@ -162,8 +166,11 @@ const SEEDMAX = 12, MATCH_T = 1500, TAIL = 300, LIB = [{ name: 'plain (0, 0)', g
 const pr = { g: { r: 0.5, t: 0.5 }, seed: [], opp: 0, sim: null, live: false, hist: [], code: '' };
 const YOU = hex('#4c9be8'), OPP = hex('#e8a33c');
 LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; $('opp').append(e); });
+{ const e = document.createElement('option'); e.value = 'code'; e.textContent = 'a player code…'; $('opp').append(e); }
 function nearestCell(B, x, y, z) { let best = 0, bd = Infinity; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] - x) ** 2 + (B.pos[3 * i + 1] - y) ** 2 + (B.pos[3 * i + 2] - z) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
-function oppSeed() { return farClump(st.board, pr.seed, SEEDMAX); } // shared with the GPU trainer (board.mjs)
+// the opponent: a library genome on a clump at the far side (as the GPU trainer does, board.mjs), or a loaded player code with its own seed (11-25)
+function oppSeed() { if (pr.opp === 'code') return pr.oppP ? pr.oppP.seed.filter((i) => !pr.seed.includes(i)) : []; return farClump(st.board, pr.seed, SEEDMAX); }
+const oppGenome = () => (pr.opp === 'code' ? pr.oppP?.g || { r: 0, t: 0 } : LIB[pr.opp].g);
 let oppCells = new Set();
 function probeColour(B, i) {
   if (pr.sim) { const g = pr.sim.G[i]; if (g < 0) return EMPTY; const c = g === 0 ? YOU : OPP; return pr.sim.Inf[i] ? mixc(c, RED, 0.6) : c; }
@@ -173,25 +180,31 @@ pr.seedSet = new Set();
 function effects() { const { r, t } = pr.g, b = (1 - BASE.costR * r) * (1 - BASE.costT * t);
   return `catches the mould <b>×${(1 - BASE.effR * r).toFixed(2)}</b> · harmed when infected <b>×${(1 - BASE.effT * t).toFixed(2)}</b> · grows <b>×${b.toFixed(3)}</b>`; }
 function probeCode() { const B = st.board; return btoa(JSON.stringify({ v: 1, g: [pr.g.r, pr.g.t], s: pr.seed.map((i) => [0, 1, 2].map((d) => +B.pos[3 * i + d].toFixed(4))) })); }
-function loadCode(code, quiet) { try { const o = JSON.parse(atob(code.trim())); if (o.v !== 1) throw 0; const B = st.board; stopMatch();
-    pr.g = { r: Math.min(1, Math.max(0, +o.g[0])), t: 0 }; pr.g.t = Math.min(1 - pr.g.r, Math.max(0, +o.g[1]));
+function decodeCode(code) { const o = JSON.parse(atob(code.replace(/\s+/g, ''))); if (o.v !== 1) throw 0; const B = st.board;   // whitespace from a wrapped paste is dropped
+    const g = { r: Math.min(1, Math.max(0, +o.g[0])), t: 0 }; g.t = Math.min(1 - g.r, Math.max(0, +o.g[1]));
     const want = Math.min(SEEDMAX, o.s.length), got = [...new Set(o.s.slice(0, SEEDMAX).map((p) => nearestCell(B, p[0], p[1], p[2])))];
     // points that snap to the same cell on this board's shape: regrow the lost ones from the snapped cells' neighbours, so the count holds
     const have = new Set(got), q = [...got]; while (got.length < want && q.length) { const u = q.shift(); for (const v of B.adj[u]) if (!have.has(v) && got.length < want) { have.add(v); got.push(v); q.push(v); } }
-    pr.seed = got; probeUI(); }
+    return { g, seed: got }; }
+function loadCode(code, quiet) { try { const d = decodeCode(code); stopMatch(); pr.g = d.g; pr.seed = d.seed; probeUI(); }
   catch (e) { if (!quiet) $('presult').textContent = 'That code did not load.'; } }
+function loadOpp(code) { try { pr.oppP = decodeCode(code); stopMatch(); probeUI(); } catch (e) { pr.oppP = null; probeUI(); $('ocodeNote').textContent = 'That code did not load.'; } }
 function probeUI() { if (!st.board) return; pr.seedSet = new Set(pr.seed); oppCells = new Set(oppSeed());
   $('gr').value = pr.g.r; $('gt').value = pr.g.t; $('grv').textContent = pr.g.r.toFixed(2); $('gtv').textContent = pr.g.t.toFixed(2); $('geff').innerHTML = effects();
   $('seedn').textContent = `${pr.seed.length} / ${SEEDMAX} cells placed`; pr.code = pr.seed.length ? probeCode() : ''; $('pcode').value = pr.code;
-  $('mplay').disabled = $('mscore').disabled = !pr.seed.length; st.dirty = true; }
+  const oc = pr.opp === 'code'; $('pOppCode').classList.toggle('hidden', !oc); $('ocodeNote').classList.toggle('hidden', !oc);
+  if (oc) { const o = pr.oppP, lost = o ? o.seed.length - oppCells.size : 0;
+    $('ocodeNote').innerHTML = o ? `Opponent: r <b>${o.g.r.toFixed(2)}</b>, t <b>${o.g.t.toFixed(2)}</b>, ${oppCells.size} cells at its own place${lost ? ` (${lost} shared with your seed go to you)` : ''}.` : 'Paste a code and press load opponent.'; }
+  $('mplay').disabled = $('mscore').disabled = !pr.seed.length || (oc && !pr.oppP); st.dirty = true; }
 function toggleSeed(i) { stopMatch(); const k = pr.seed.indexOf(i); if (k >= 0) pr.seed.splice(k, 1); else if (pr.seed.length < SEEDMAX) pr.seed.push(i); probeUI(); }
 $('gr').oninput = () => { pr.g.r = +$('gr').value; if (pr.g.r + pr.g.t > 1) pr.g.t = +(1 - pr.g.r).toFixed(2); probeUI(); };
 $('gt').oninput = () => { pr.g.t = +$('gt').value; if (pr.g.r + pr.g.t > 1) pr.g.r = +(1 - pr.g.t).toFixed(2); probeUI(); };
 $('seedClear').onclick = () => { stopMatch(); pr.seed = []; probeUI(); };
-$('opp').onchange = () => { pr.opp = +$('opp').value; stopMatch(); };
+$('opp').onchange = () => { pr.opp = $('opp').value === 'code' ? 'code' : +$('opp').value; stopMatch(); probeUI(); };
+$('oload').onclick = () => loadOpp($('ocode').value);
 $('pcopy').onclick = () => navigator.clipboard?.writeText($('pcode').value);
 $('pload').onclick = () => loadCode($('pcode').value);
-function newMatch(seed, mine = pr.g) { return makeSim(st.board.adj, P, null, { seed, inf0: 0, lineages: [mine, LIB[pr.opp].g], seeds: [{ lineage: 0, cells: pr.seed }, { lineage: 1, cells: [...oppCells] }] }); }
+function newMatch(seed, mine = pr.g) { return makeSim(st.board.adj, P, null, { seed, inf0: 0, lineages: [mine, oppGenome()], seeds: [{ lineage: 0, cells: pr.seed }, { lineage: 1, cells: [...oppCells] }] }); }
 function held(sim) { const c = [0, 0]; let y = 0, n = 0; for (let i = 0; i < sim.N; i++) { const g = sim.G[i]; if (g >= 0) { c[g]++; n++; y += sim.Inf[i]; } } return { k: sim.k, you: c[0] / sim.N, opp: c[1] / sim.N, mould: n ? y / n : 0 }; }
 function verdict(rows) { const tail = rows.filter((o) => o.k > MATCH_T - TAIL), m = (f) => tail.reduce((a, o) => a + f(o), 0) / Math.max(1, tail.length); return { you: m((o) => o.you), opp: m((o) => o.opp) }; }
 function stopMatch() { pr.sim = null; pr.live = false; $('mplay').textContent = '▶ match'; $('mtick').textContent = ''; st.dirty = true; }
@@ -211,7 +224,7 @@ function drawPChart(H) { const c = $('pchart'), dpr = devicePixelRatio || 1, w =
 $('mscore').onclick = async () => { stopMatch(); probeUI(); $('mscore').disabled = true; const res = [], nul = [];
   const run = async (s, g, tag) => { const sim = newMatch(s, g), rows = []; while (sim.k < MATCH_T) { for (let i = 0; i < 50; i++) { sim.step(); if (sim.k % 10 === 0) rows.push(held(sim)); }
       $('presult').textContent = `scoring… seed ${s} / 5 (${tag}), tick ${sim.k}`; await new Promise((r) => setTimeout(r)); } return verdict(rows); };
-  for (let s = 1; s <= 5; s++) { res.push(await run(s, pr.g, 'your genome')); nul.push(await run(s, LIB[pr.opp].g, 'null: their genome on your seed')); }
+  for (let s = 1; s <= 5; s++) { res.push(await run(s, pr.g, 'your genome')); nul.push(await run(s, oppGenome(), 'null: their genome on your seed')); }
   const wins = res.filter((v) => v.you > v.opp).length, mean = (a) => a.reduce((x, y) => x + y, 0) / a.length, pct = (v) => (100 * v).toFixed(1);
   const mar = res.map((v) => v.you - v.opp), nmar = nul.map((v) => v.you - v.opp), sd = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
   const M = mean(mar), N = mean(nmar), se = Math.sqrt((sd(mar) ** 2 + sd(nmar) ** 2) / 5);
@@ -262,8 +275,10 @@ function frame(t) { const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (pr.sim && pr.live) stepMatch();
   if (st.dirty) { draw(); st.dirty = false; } requestAnimationFrame(frame); }
 // #board=<id>&probe=<code> (from the GPU trainer): open that board in the probe view with that probe loaded
-const HASH = new URLSearchParams(location.hash.slice(1)), hb = IDX.boards.find((b) => String(b.id) === HASH.get("board"));
+const HASH0 = new URLSearchParams(location.hash.slice(1)), HASH = { get: (k) => HASH0.get(k)?.replace(/ /g, "+") ?? null },   // a raw + in a hash arrives as a space
+  hb = IDX.boards.find((b) => String(b.id) === HASH.get("board"));
 const first = hb || IDX.boards.find((b) => b.conv) || IDX.boards[0]; $('bsel').value = first.id; await load(first.id);
-if (HASH.get("probe")) { document.querySelector('#modes button[data-m=probe]').click(); loadCode(HASH.get("probe")); }
+if (HASH.get("probe") || HASH.get("opp")) { document.querySelector('#modes button[data-m=probe]').click(); if (HASH.get("probe")) loadCode(HASH.get("probe"));
+  if (HASH.get("opp")) { $('opp').value = 'code'; pr.opp = 'code'; $('ocode').value = HASH.get("opp"); loadOpp(HASH.get("opp")); } }
 requestAnimationFrame(frame);
 </script></body></html>

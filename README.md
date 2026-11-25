@@ -86,6 +86,12 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
 - Gate O at eps 0.001: R polymorphic at **0.935** from both sides (was 0.864 at eps 0; S keeps ~7%), T fixes, plants fire. The eps 0 line is kept for Roy & Kirchner.
 - **Gate W PASS** (N 20000): R 0.926 from 5%, 0.925 from 95% (ODE 0.935) · T fixes · plants fire. `runs/gate_agents_eps.log`.
 
+## Player codes (11-25)
+A player = genome + seed, as one base64 code (`{v:1, g:[r,t], s:[[x,y,z]…]}`; the seed is stored as positions and snapped to the nearest cells of the board
+it is loaded on). In the probe builder: **Player code · share or load** (paste, press load: it becomes yours), or choose **a player code…** as the opponent
+to play one code against another (a cell both seeds claim goes to you). Links: `#board=<id>&probe=<code>&opp=<code>` (either may be left out).
+Whitespace from a wrapped paste is ignored. The trainer still trains against the library opponents only.
+
 ## Rest and orbit (11-25, Doug)
 Both pages load fable's `rest.js` (vendored unchanged in `lib/rest/`, pinned): after 60 s with no viewer input the page rests (every animation loop
 is parked, so the GPU and CPU do nothing for the pictures) and any move wakes it. `?rest=N` sets the seconds, `?rest=0` turns it off; a browser under
