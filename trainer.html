@@ -18,6 +18,8 @@
   .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); font-weight:600; } .warn { color:var(--warn); } .dim { color:var(--dim); }
   .note { color:var(--dim); font-size:12px; margin-top:8px; } .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
   canvas { width:100%; height:180px; display:block; background:#0f1215; border:1px solid var(--line); border-radius:4px; margin-top:10px; }
+  #gview { height:380px; cursor:grab; } #gbar { height:18px; margin-top:6px; } .legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:2px 16px; margin-top:8px; font-size:12px; font-variant-numeric:tabular-nums; }
+  .legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; } .legend .gone { color:#5c636d; text-decoration:line-through; }
   code { font:11px ui-monospace,monospace; color:#c5ccd6; word-break:break-all; }
 </style></head>
 <body><main>
@@ -54,6 +56,18 @@
       x = GPU-seconds. Margin = your share of the board minus the opponent's (training length, fresh seeds each generation).</div>
     <div id="best"></div></section>
 
+  <section><h2>While it trains · the generations play</h2>
+    <div class="note" style="margin-top:0">A live game on the board (the CPU sim, the same one the gate checks). Generation 1's best lands on the empty edge at tick 0.
+      Each later generation's best lands the moment it is found, as a clean 12-cell seed at its own place, overwriting whatever is there.
+      A best that is the same probe as the last one to land does not land again. Colour runs from the first generation (blue) to the latest (yellow); red = mould.
+      Everyone keeps playing after the training ends. <b>This is a show, not a ranking</b>: a late lander arrives on a board that is already full, so it
+      is judged here on worse terms than the early ones. The ranking is section 3.</div>
+    <canvas id="gview"></canvas><canvas id="gbar"></canvas>
+    <div class="row"><label style="width:auto"><input id="gon" type="checkbox" checked> play the game while training</label>
+      <label style="width:auto"><span style="width:auto">ticks per frame</span><select id="gspeed" style="width:70px"><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
+      <span id="gtick" class="dim"></span></div>
+    <div id="glegend" class="legend"></div></section>
+
   <section><h2>3 · Held out: the best against random probes</h2>
     <div class="note" style="margin-top:0">Real length (1500 ticks), 16 seeds never used in training, each selected opponent. Baseline: 16 random probes on the same
       seeds. The trained probe must beat them by more than 2 standard errors; otherwise the training learned nothing that holds.</div>
@@ -63,6 +77,7 @@
 import { boardFromFlat, clumpAt, farClump } from './board.mjs';
 import { makeSim, BASE, rng } from './lichens.mjs';
 import { getDevice, Engine } from './gpu/sim.mjs';
+import { makeView, hex } from './view.mjs';
 
 const $ = (id) => document.getElementById(id), IDX = await (await fetch('boards/index.json')).json();
 const LIB = [{ name: 'plain (0, 0)', g: { r: 0, t: 0 } }, { name: 'resister (1, 0)', g: { r: 1, t: 0 } }, { name: 'tolerator (0, 1)', g: { r: 0, t: 1 } }, { name: 'half and half (.5, .5)', g: { r: 0.5, t: 0.5 } }];
@@ -75,7 +90,7 @@ try { GPU = await getDevice(); $('adapter').textContent = `GPU: ${GPU.info.vendo
 catch (e) { $('adapter').innerHTML = `<span class="bad">${e.message}</span>`; $('gate').disabled = true; }
 async function loadBoard(id) { const d = await (await fetch(`boards/${id}.json`)).json(); B = boardFromFlat(d.cells, d.E); B.id = id; engines = new Map();
   $('binfo').textContent = `${B.n.toLocaleString()} cells at 1/${B.E}. Opponents grow from a 12-cell clump around the cell farthest from your seed's centre, as in the probe builder.`; }
-$('bsel').onchange = () => loadBoard(+$('bsel').value); await loadBoard(+$('bsel').value);
+$('bsel').onchange = async () => { await loadBoard(+$('bsel').value); game.reset(true); }; await loadBoard(+$('bsel').value);
 const engine = (n) => { const k = n; if (!engines.has(k)) { engines.clear(); engines.set(k, new Engine(GPU.dev, B, n)); } return engines.get(k); };
 
 // ---- shared scoring, identical to the probe builder: sample every 10 ticks after T - tail, mean share of the board
@@ -122,10 +137,10 @@ $('stop').onclick = () => { stop = true; };
 $('train').onclick = async () => { $('train').disabled = true; $('stop').disabled = false; stop = false; hist = []; $('held').innerHTML = '';
   const opps = [...$('opps').selectedOptions].map((o) => +o.value); if (!opps.length) { $('tstat').textContent = 'pick at least one opponent'; $('train').disabled = false; return; }
   const P = +$('pop').value, S = +$('seeds').value, T = +$('tT').value, budget = +$('budget').value * 1000, ELITE = Math.max(2, Math.round(P / 4)), r = rng(20261125);
-  let pop = Array.from({ length: P }, () => randProbe(r)), used = 0, gen = 0, best = null;
+  let pop = Array.from({ length: P }, () => randProbe(r)), used = 0, gen = 0, best = null; game.reset();
   while (used < budget && !stop) { gen++; const res = await score(pop, opps, S, T, 1000 + gen); used += res.ms;
     const ranked = pop.map((p, i) => ({ ...p, fit: res.fit[i].margin })).sort((a, b) => b.fit - a.fit); best = ranked[0];
-    hist.push({ x: used / 1000, best: ranked[0].fit, mean: mean(ranked.map((p) => p.fit)) }); drawChart();
+    hist.push({ x: used / 1000, best: ranked[0].fit, mean: mean(ranked.map((p) => p.fit)) }); drawChart(); game.land(best, gen, used);
     $('tstat').textContent = `generation ${gen} · ${(used / 1000).toFixed(1)} / ${budget / 1000} GPU-s · ${P * S * opps.length} matches per generation (${(res.ms / 1000).toFixed(2)} s)`;
     $('best').innerHTML = `<div class="note">Best this generation: r <b>${best.g.r}</b>, t <b>${best.g.t}</b>, margin <b>${best.fit >= 0 ? '+' : ''}${pct(best.fit)}</b> points at ${T} ticks.</div>`;
     const elite = ranked.slice(0, ELITE); pop = [...elite.map((e) => ({ g: e.g, seed: e.seed })), ...Array.from({ length: P - ELITE }, () => mutate(elite[Math.floor(r() * ELITE)], r))]; await sleep0(); }
@@ -149,5 +164,38 @@ async function heldOut(best, opps, used) { const r = rng(777), rand = Array.from
      Budget used: ${(used / 1000).toFixed(1)} GPU-s, so <b>${(100 * mean(bm) / (used / 1000)).toFixed(2)}</b> held-out margin points per GPU-second.</div>` +
     `<div class="row"><a href="./#board=${B.id}&probe=${encodeURIComponent(code)}">open the trained probe in the probe builder →</a></div><div class="note">share code: <code>${code}</code></div>`;
   window.__held = { best: mean(bm), rand: mean(rm), d, se, ok, code }; }
+// ---- the in-training game (Doug 11-25: "waiting with nothing feels like dead space. like silence on the radio")
+// One CPU makeSim, stepped a few ticks per animation frame while the GPU trains (and after). Landers come from the training loop.
+const game = (() => {
+  const STOPS = ['#3a56c8', '#2b9fb0', '#69c46a', '#d8d44a', '#f7f1b0'].map(hex), EMPTY = hex('#262b33'), RED = hex('#e5484d');
+  const rampc = (u) => { u = Math.max(0, Math.min(1, u)) * (STOPS.length - 1); const i = Math.min(STOPS.length - 2, Math.floor(u)), f = u - i; return STOPS[i].map((v, k) => v + (STOPS[i + 1][k] - v) * f); };
+  const mixc = (a, b, f) => a.map((v, k) => v + (b[k] - v) * f);
+  const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [] };
+  const view = makeView($('gview'), (i) => { if (!G.sim) return EMPTY; const g = G.sim.G[i]; return g < 0 ? EMPTY : G.sim.Inf[i] ? G.inf[g] : G.col[g]; });
+  view.setBoard(B);
+  const recolour = () => { const n = G.landers.length, g0 = G.landers[0]?.gen || 1, g1 = G.landers.at(-1)?.gen || 1;
+    G.col = G.landers.map((l) => rampc(g1 > g0 ? (l.gen - g0) / (g1 - g0) : 0)); G.inf = G.col.map((c) => mixc(c, RED, 0.65)); };
+  const same = (a, b) => a && b && a.g.r === b.g.r && a.g.t === b.g.t && a.seed.length === b.seed.length && a.seed.every((v, i) => v === b.seed[i]);
+  G.reset = (boardChanged) => { G.sim = null; G.landers = []; G.held = []; G.peak = []; recolour(); if (boardChanged) view.setBoard(B); view.dirty = true; legend(); };
+  G.land = (best, gen, used) => { if (!$('gon').checked) return; const last = G.landers.at(-1), pr = { g: { ...best.g }, seed: best.seed.slice() };
+    if (same(last, pr)) return;
+    if (!G.sim) G.sim = makeSim(B.adj, BASE, null, { seed: 20261125, inf0: 0, lineages: [pr.g], seeds: [{ lineage: 0, cells: pr.seed }] });
+    else G.sim.addLineage(pr.g, pr.seed);
+    G.landers.push({ ...pr, gen, at: G.sim.k, gpus: used / 1000, fit: best.fit }); G.held.push(pr.seed.length); G.peak.push(pr.seed.length); recolour(); tally(); legend(); };
+  function tally() { const c = new Array(G.landers.length).fill(0), s = G.sim; for (let i = 0; i < s.N; i++) { const g = s.G[i]; if (g >= 0) c[g]++; }
+    G.held = c; c.forEach((v, i) => { if (v > G.peak[i]) G.peak[i] = v; }); }
+  function bar() { const c = $('gbar'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
+    g.fillStyle = '#262b33'; g.fillRect(0, 0, w, h); if (!G.sim) return; let x = 0; G.held.forEach((v, i) => { const dw = (v / G.sim.N) * w, k = G.col[i]; g.fillStyle = `rgb(${k.map(Math.round).join(',')})`; g.fillRect(x, 0, dw + 0.5, h); x += dw; }); }
+  function legend() { const el = $('glegend'); if (!G.landers.length) { el.innerHTML = '<div class="dim">Nothing has landed yet. Press train.</div>'; bar(); $('gtick').textContent = ''; return; }
+    const N = G.sim.N, rows = G.landers.map((l, i) => ({ l, i })), show = rows.length > 12 ? [...rows.slice(0, 2), ...rows.slice(-10)] : rows, hidden = rows.length - show.length;
+    const alive = G.held.filter((v) => v > 0).length;
+    el.innerHTML = show.map(({ l, i }) => `<div class="${G.held[i] ? '' : 'gone'}"><span class="sw" style="background:rgb(${G.col[i].map(Math.round).join(',')})"></span>gen ${l.gen} · r ${l.g.r} t ${l.g.t} · landed tick ${l.at} · holds <b>${pct(G.held[i] / N)}%</b> (peak ${pct(G.peak[i] / N)}%)</div>`).join('') +
+      (hidden ? `<div class="dim">… and ${hidden} more in between</div>` : '') + `<div class="dim">${G.landers.length} landed · ${alive} still on the board</div>`;
+    bar(); $('gtick').textContent = `tick ${G.sim.k}`; }
+  let n = 0;
+  function frame() { if (G.sim) { const k = +$('gspeed').value; for (let i = 0; i < k; i++) G.sim.step(); n += k; if (n >= 10) { n = 0; tally(); legend(); } view.dirty = true; }
+    if (view.dirty || view.spin) view.draw(); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame); legend(); window.__game = G; return G;
+})();
 window.__ready = true;
 </script></body></html>

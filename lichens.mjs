@@ -34,9 +34,11 @@ export const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; 
 // G[i] = -1 empty, 0 S, 1 R, 2 T; Inf[i] = 1 infected. step() = one tick; count() = { k, freq, density, prevalence }.
 // opts.lineages: genomes (default S, R, T). opts.seeds: [{ lineage, cells: [cell index...] }] places colonies instead of the random fill
 // (then x0 is ignored and nothing starts infected unless inf0 > 0: the spore rain brings the mould).
+// addLineage(genome, cells) (11-25, the in-training game): a new lineage lands mid-game; its cells are overwritten with clean lichen of it.
+//   Draws no random number, so a run that never calls it is the old run, stream for stream (check_land.mjs proves both claims).
 export function makeSim(board, p, x0, { seed = 1, fill = 0.5, inf0 = 0.1, lineages = SRT, seeds = null } = {}) {
   const mixed = !Array.isArray(board), N = mixed ? board.mixed : board.length, r = rng(seed), t = genomeTraits(p, lineages), eps = p.eps || 0, L = lineages.length;
-  const G = new Int8Array(N).fill(-1), Inf = new Uint8Array(N), order = new Int32Array(N).map((_, i) => i);
+  const G = new Int16Array(N).fill(-1), Inf = new Uint8Array(N), order = new Int32Array(N).map((_, i) => i);
   if (seeds) { for (const s of seeds) for (const i of s.cells) if (G[i] < 0) { G[i] = s.lineage; Inf[i] = inf0 > 0 && r() < inf0 ? 1 : 0; } }
   else for (let i = 0; i < N; i++) if (r() < fill) { const u = r(); let g = 0, acc = x0[0]; while (g < L - 1 && !(u < acc)) acc += x0[++g]; G[i] = g; Inf[i] = r() < inf0 ? 1 : 0; }
   const nb = (i) => { if (mixed) return Math.floor(r() * N); const a = board[i]; return a.length ? a[Math.floor(r() * a.length)] : -1; };
@@ -50,7 +52,9 @@ export function makeSim(board, p, x0, { seed = 1, fill = 0.5, inf0 = 0.1, lineag
         else if (r() < p.gamma) Inf[i] = 0; }
       sim.k++;
     },
-    count() { const c = new Array(L).fill(0); let y = 0, n = 0; for (let i = 0; i < N; i++) if (G[i] >= 0) { c[G[i]]++; n++; y += Inf[i]; }
+    addLineage(g, cells) { const n = genomeTraits(p, [g]), id = sim.L++; t.b.push(n.b[0]); t.beta.push(n.beta[0]); t.alpha.push(n.alpha[0]);
+      for (const i of cells) { G[i] = id; Inf[i] = 0; } return id; },
+    count() { const c = new Array(sim.L).fill(0); let y = 0, n = 0; for (let i = 0; i < N; i++) if (G[i] >= 0) { c[G[i]]++; n++; y += Inf[i]; }
       return { k: sim.k, freq: c.map((v) => (n ? v / n : 0)), density: n / N, prevalence: n ? y / n : 0 }; } };
   return sim;
 }
