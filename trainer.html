@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8">
+<script src="lib/rest/rest.js"></script><!-- fable's rest.js: after 60 s with no input the page rests (animation parked; GPU training is not an animation loop and carries on); any move wakes it --><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Edge lichens · GPU trainer</title>
 <!-- insights 11-25, step 3. Trains probes (genome + seed) on the GPU (gpu/sim.mjs, WebGPU) within a budget of GPU-seconds.
      The CPU makeSim (lichens.mjs) is the oracle: the gate below must pass before a trained number means anything. No sound. -->
@@ -21,6 +22,8 @@
   #gview { height:380px; cursor:grab; } #gbar { height:18px; margin-top:6px; } .legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:2px 16px; margin-top:8px; font-size:12px; font-variant-numeric:tabular-nums; }
   .legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; } .legend .gone { color:#5c636d; text-decoration:line-through; }
   code { font:11px ui-monospace,monospace; color:#c5ccd6; word-break:break-all; }
+ .orbit { position:absolute; top:10px; right:10px; z-index:5; font:12px system-ui,sans-serif; color:#d9dde3; background:#14171ccc; border:1px solid #3a4b5e; border-radius:999px; padding:4px 11px; cursor:pointer; }
+  figure { margin:0; position:relative; }
 </style></head>
 <body><main>
   <h1>Edge lichens · GPU trainer</h1>
@@ -63,7 +66,7 @@
       A best that is the same probe as the last one does not start a round. Colour runs from the first generation (blue) to the latest (yellow); red = mould.
       Why rounds: landing late on a full board never works here. Births only go into empty cells, so a 12-cell seed dropped onto a full edge dies out
       (it held about 1% even when we cleared a 600-cell crater for it). <b>This is a show, not a ranking</b>: a round is one seed and often short. The ranking is section 3.</div>
-    <canvas id="gview"></canvas><canvas id="gbar"></canvas>
+    <figure data-live><canvas id="gview"></canvas><button class="orbit" id="gorbit" title="pause or resume the slow turn">⏸ orbit</button></figure><canvas id="gbar"></canvas>
     <div class="row"><label style="width:auto"><input id="gon" type="checkbox" checked> play the game while training</label>
       <label style="width:auto"><span style="width:auto">ticks per frame</span><select id="gspeed" style="width:70px"><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
       <span id="gtick" class="dim"></span></div>
@@ -180,7 +183,7 @@ const game = (() => {
   const mixc = (a, b, f) => a.map((v, k) => v + (b[k] - v) * f);
   const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [], round: 0 };
   const view = makeView($('gview'), (i) => { if (!G.sim) return EMPTY; const g = G.sim.G[i]; return g < 0 ? EMPTY : G.sim.Inf[i] ? G.inf[g] : G.col[g]; });
-  view.setBoard(B);
+  view.setBoard(B); $('gorbit').onclick = () => { view.spin = !view.spin; $('gorbit').textContent = view.spin ? '⏸ orbit' : '▶ orbit'; };
   const recolour = () => { const n = G.landers.length, g0 = G.landers[0]?.gen || 1, g1 = G.landers.at(-1)?.gen || 1;
     G.col = G.landers.map((l) => rampc(g1 > g0 ? (l.gen - g0) / (g1 - g0) : 0)); G.inf = G.col.map((c) => mixc(c, RED, 0.65)); };
   const same = (a, b) => a && b && a.g.r === b.g.r && a.g.t === b.g.t && a.seed.length === b.seed.length && a.seed.every((v, i) => v === b.seed[i]);
@@ -206,7 +209,7 @@ const game = (() => {
   let n = 0;
   function frame() { if (G.sim) { const k = +$('gspeed').value; for (let i = 0; i < k; i++) G.sim.step(); n += k; if (n >= 10) { n = 0; tally(); legend(); } view.dirty = true; }
     if (view.dirty || view.spin) view.draw(); requestAnimationFrame(frame); }
-  requestAnimationFrame(frame); legend(); window.__game = G; return G;
+  requestAnimationFrame(frame); legend(); G.view = view; window.__game = G; return G;
 })();
 window.__ready = true;
 </script></body></html>

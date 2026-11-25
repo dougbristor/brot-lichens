@@ -86,6 +86,12 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
 - Gate O at eps 0.001: R polymorphic at **0.935** from both sides (was 0.864 at eps 0; S keeps ~7%), T fixes, plants fire. The eps 0 line is kept for Roy & Kirchner.
 - **Gate W PASS** (N 20000): R 0.926 from 5%, 0.925 from 95% (ODE 0.935) · T fixes · plants fire. `runs/gate_agents_eps.log`.
 
+## Rest and orbit (11-25, Doug)
+Both pages load fable's `rest.js` (vendored unchanged in `lib/rest/`, pinned): after 60 s with no viewer input the page rests (every animation loop
+is parked, so the GPU and CPU do nothing for the pictures) and any move wakes it. `?rest=N` sets the seconds, `?rest=0` turns it off; a browser under
+automation never rests unless `?rest=N` is given. GPU training is not an animation loop and carries on while the page rests. Each 3D view has a
+**⏸ orbit** button that pauses the slow turn.
+
 ## The board page
 `index.html` (in the Brot ecosystem: `http://localhost:8088/insights/edge_lichens/`; `node export_boards.mjs` refreshes `boards/`).
 - Views: **edge** (colour = neighbour count, white = chokepoint, magenta = outside the largest piece), **plant G1** (the uniform scatter, same N), **lichens** (live game).
