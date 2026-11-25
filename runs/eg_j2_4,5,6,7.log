@@ -1,0 +1,5 @@
+gate J2 178a1f508bf5
+i 0.65             conv16/32 YN J3 0.879 lv 91 not still/not still  N 6876/39612  dim 2.53  @1/32: comps 167 largest 0.995 deg 16.78 artic 0.004
+rabbit-ish (r,j)   conv16/32 NN J3 0.737 lv 48  N 4598/25180  dim 2.45  @1/32: comps 93 largest 0.993 deg 13.51 artic 0.006
+round sval/24      conv16/32 NN J3 0.774 lv 41  N 5416/24548  dim 2.18  @1/32: comps 67 largest 0.995 deg 13.37 artic 0.003
+round sval/25      conv16/32 YY J3 0.927 lv 34  N 4050/17614  dim 2.12  @1/32: comps 11 largest 0.998 deg 11.96 artic 0.003

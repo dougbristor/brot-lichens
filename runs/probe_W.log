@@ -1,0 +1,6 @@
+S alone  ODE dens/prev 0.637/0.294  agents N4000 0.637/0.315
+R alone  ODE dens/prev 0.823/0.000  agents N4000 0.824/0.000
+T alone  ODE dens/prev 0.648/0.614  agents N4000 0.646/0.644
+R_lo N 4000: mould dies at tick 1150; R freq @500 0.857 @1000 0.856 prev @500 0.035
+R_lo N 20000: mould dies at tick never (3000); R freq @500 0.848 @1000 0.876 prev @500 0.024
+wall 7.72s

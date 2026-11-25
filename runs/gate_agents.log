@@ -1,0 +1,8 @@
+R_lo     S/R/T (mean of last 2000 ticks) 0.221 0.779 0.000 prev 0.000 dens 0.823 ticks 1200
+R_hi     S/R/T (mean of last 2000 ticks) 0.104 0.896 0.000 prev 0.000 dens 0.819 ticks 100
+T_lo     S/R/T (mean of last 2000 ticks) 0.000 0.000 1.000 prev 0.653 dens 0.656 ticks 8000
+plant_R  S/R/T (mean of last 2000 ticks) 0.612 0.388 0.000 prev 0.000 dens 0.829 ticks 100
+plant_T  S/R/T (mean of last 2000 ticks) 0.598 0.000 0.402 prev 0.000 dens 0.831 ticks 100
+ODE R freq 0.864 | agents R from 5%: 0.779 from 95%: 0.896
+FAIL R_poly  ok   T_fix  FAIL plants GATE W FAIL
+wall 2.32s

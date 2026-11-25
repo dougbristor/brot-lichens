@@ -1,0 +1,6 @@
+gate J3b 80a4da7aa1bd
+round sval/24      conv16/32 NN J(A,B) 0.774 starts 10 adds 1,0.09,0.058,0.003,0.037,0.027,0.011,0.004,0.002,0.045 lv 61  N 6986/32666  dim 2.23  @1/32: comps 23 largest 0.999 deg 15.32 artic 0.001
+wall 28.14s
+gate J3b 80a4da7aa1bd
+round sval/25      conv16/32 YY J(A,B) 0.927 starts 10 adds 1,0.016,0.007,0.007,0.003,0.001,0.005,0.008,0.005,0.006 lv 36  N 4366/18698  dim 2.1  @1/32: comps 13 largest 0.999 deg 12.38 artic 0.003
+wall 15.33s

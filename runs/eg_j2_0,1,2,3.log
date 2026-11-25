@@ -1,0 +1,5 @@
+gate J2 178a1f508bf5
+zero               conv16/32 NN J3 0.883 lv 27  N 3460/13896  dim 2.01  @1/32: comps 5 largest 0.999 deg 10.6 artic 0.002
+real -0.75         conv16/32 NN J3 0.867 lv 44  N 2627/11525  dim 2.13  @1/32: comps 15 largest 0.998 deg 11.37 artic 0.003
+real +0.30         conv16/32 NN J3 0.805 lv 48  N 6926/33812  dim 2.29  @1/32: comps 1 largest 1 deg 14.44 artic 0
+j 0.65             conv16/32 NN J3 0.712 lv 81  N 5516/35236  dim 2.68  @1/32: comps 253 largest 0.989 deg 14.65 artic 0.007

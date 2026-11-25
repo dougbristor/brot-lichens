@@ -1,0 +1,262 @@
+{
+ "made": "2026-11-25T10:46:52.702Z",
+ "gateW": {
+  "eps": 0.001,
+  "pass": true,
+  "ok": {
+   "R_poly": true,
+   "T_fix": true,
+   "plants": true
+  }
+ },
+ "boards": [
+  {
+   "id": 0,
+   "name": "zero",
+   "c": [
+    0,
+    0,
+    0
+   ],
+   "conv": true,
+   "run": {
+    "N": 15106,
+    "components": 1,
+    "largest_frac": 1,
+    "mean_degree": 11.27,
+    "articulation_frac": 0.001
+   },
+   "adds": [
+    1,
+    0.031,
+    0.013,
+    0.008,
+    0.005,
+    0.002,
+    0.003,
+    0.015,
+    0.003,
+    0.003
+   ],
+   "dim_16_32": 2,
+   "warn": null
+  },
+  {
+   "id": 1,
+   "name": "real -0.75",
+   "c": [
+    -0.75,
+    0,
+    0
+   ],
+   "conv": true,
+   "run": {
+    "N": 15941,
+    "components": 1,
+    "largest_frac": 1,
+    "mean_degree": 14.11,
+    "articulation_frac": 0
+   },
+   "adds": [
+    1,
+    0.066,
+    0.029,
+    0.007,
+    0.188,
+    0.002,
+    0.007,
+    0.002,
+    0,
+    0.001
+   ],
+   "dim_16_32": 2.4,
+   "warn": null
+  },
+  {
+   "id": 2,
+   "name": "real +0.30",
+   "c": [
+    0.3,
+    0,
+    0
+   ],
+   "conv": true,
+   "run": {
+    "N": 39586,
+    "components": 1,
+    "largest_frac": 1,
+    "mean_degree": 15.86,
+    "articulation_frac": 0
+   },
+   "adds": [
+    1,
+    0.082,
+    0.019,
+    0.011,
+    0.019,
+    0.005,
+    0.006,
+    0.006,
+    0.003,
+    0.002
+   ],
+   "dim_16_32": 2.26,
+   "warn": null
+  },
+  {
+   "id": 3,
+   "name": "j 0.65",
+   "c": [
+    0,
+    0.65,
+    0
+   ],
+   "conv": true,
+   "run": {
+    "N": 52100,
+    "components": 25,
+    "largest_frac": 0.999,
+    "mean_degree": 17.49,
+    "articulation_frac": 0.001
+   },
+   "adds": [
+    1,
+    0.149,
+    0.063,
+    0.047,
+    0.014,
+    0.032,
+    0.03,
+    0.018,
+    0.007,
+    0.015
+   ],
+   "dim_16_32": 2.8,
+   "warn": "fragment count not settled: 25 pieces at 10 starts, 19 at 20; read the largest piece only"
+  },
+  {
+   "id": 4,
+   "name": "i 0.65",
+   "c": [
+    0,
+    0,
+    0.65
+   ],
+   "conv": false,
+   "run": {
+    "N": 47834,
+    "components": 75,
+    "largest_frac": 0.998,
+    "mean_degree": 17.89,
+    "articulation_frac": 0.005
+   },
+   "adds": [
+    1,
+    0.055,
+    0.007,
+    0.013,
+    0.028,
+    0.024,
+    0.029,
+    0.004,
+    0.018,
+    0.007
+   ],
+   "dim_16_32": 2.64,
+   "warn": null
+  },
+  {
+   "id": 5,
+   "name": "rabbit-ish (r,j)",
+   "c": [
+    -0.123,
+    0.745,
+    0
+   ],
+   "conv": true,
+   "run": {
+    "N": 35002,
+    "components": 5,
+    "largest_frac": 1,
+    "mean_degree": 15.77,
+    "articulation_frac": 0
+   },
+   "adds": [
+    1,
+    0.142,
+    0.054,
+    0.04,
+    0.007,
+    0.028,
+    0.021,
+    0.015,
+    0.006,
+    0.002
+   ],
+   "dim_16_32": 2.48,
+   "warn": null
+  },
+  {
+   "id": 6,
+   "name": "round sval/24",
+   "c": [
+    0.0039,
+    -0.2656,
+    -0.6055
+   ],
+   "conv": false,
+   "run": {
+    "N": 32666,
+    "components": 23,
+    "largest_frac": 0.999,
+    "mean_degree": 15.32,
+    "articulation_frac": 0.001
+   },
+   "adds": [
+    1,
+    0.09,
+    0.058,
+    0.003,
+    0.037,
+    0.027,
+    0.011,
+    0.004,
+    0.002,
+    0.045
+   ],
+   "dim_16_32": 2.23,
+   "warn": null
+  },
+  {
+   "id": 7,
+   "name": "round sval/25",
+   "c": [
+    0.1836,
+    -0.4609,
+    0.3828
+   ],
+   "conv": true,
+   "run": {
+    "N": 18698,
+    "components": 13,
+    "largest_frac": 0.999,
+    "mean_degree": 12.38,
+    "articulation_frac": 0.003
+   },
+   "adds": [
+    1,
+    0.016,
+    0.007,
+    0.007,
+    0.003,
+    0.001,
+    0.005,
+    0.008,
+    0.005,
+    0.006
+   ],
+   "dim_16_32": 2.1,
+   "warn": null
+  }
+ ]
+}

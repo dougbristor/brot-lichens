@@ -1,0 +1,5 @@
+gate J3 88cc96c10fbb
+zero               conv16/32 YY J(A,B) 0.883 starts 4 adds 1,0.031,0.013,0.008 lv 28  N 3674/14632  dim 1.99  @1/32: comps 1 largest 1 deg 10.99 artic 0.002
+plant G1 (uniform scatter, same N as zero): {"N":14632,"components":10203,"largest_frac":0.001,"mean_degree":0.66,"articulation_frac":0.417} FIRES (ok)
+plant P3 (patch r 0.5 per start, zero @1/32): starts 10 adds 1,0.417,0.183,0.292,0.251,0.145,0.116,0.1,0.026,0.026 N 5926 FIRES (ok)
+wall 19.73s

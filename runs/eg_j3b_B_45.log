@@ -1,0 +1,6 @@
+gate J3b 80a4da7aa1bd
+i 0.65             conv16/32 YN J(A,B) 0.879 starts 10 adds 1,0.055,0.007,0.013,0.028,0.024,0.029,0.004,0.018,0.007 lv 91 s0:not still/s1:not still/s2:not still/s3:not still/s4:not still/s5:not still/s6:not still/s7:not still/s8:not still/s9:not still  N 7686/47834  dim 2.64  @1/32: comps 75 largest 0.998 deg 17.89 artic 0.005
+wall 75.37s
+gate J3b 80a4da7aa1bd
+rabbit-ish (r,j)   conv16/32 YY J(A,B) 0.737 starts 10 adds 1,0.142,0.054,0.04,0.007,0.028,0.021,0.015,0.006,0.002 lv 55  N 6266/35002  dim 2.48  @1/32: comps 5 largest 1 deg 15.77 artic 0
+wall 29.47s

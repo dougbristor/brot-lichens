@@ -1,0 +1,8 @@
+R_lo     S/R/T (mean of last 20 samples) 0.151 0.849 0.000 prev 0.031 dens 0.805 ticks 8000
+R_hi     S/R/T (mean of last 20 samples) 1.000 0.000 0.000 prev 0.000 dens 0.833 ticks 8000
+T_lo     S/R/T (mean of last 20 samples) 0.000 0.000 1.000 prev 0.648 dens 0.647 ticks 8000
+plant_R  S/R/T (mean of last 20 samples) 1.000 0.000 0.000 prev 0.000 dens 0.836 ticks 8000
+plant_T  S/R/T (mean of last 20 samples) 1.000 0.000 0.000 prev 0.000 dens 0.830 ticks 8000
+ODE R freq 0.864 | agents R from 5%: 0.849 from 95%: 0.000
+FAIL R_poly  ok   T_fix  ok   plants GATE W FAIL
+wall 36.84s

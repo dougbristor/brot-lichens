@@ -1,0 +1,5 @@
+# regenerable with `npm run boards` (the page reads boards/, which is committed)
+runs/edge_graphs_*.json
+node_modules/
+# pre-repo code backups: absolute local paths; history lives in git from 0.1 on
+runs/*_backup.mjs

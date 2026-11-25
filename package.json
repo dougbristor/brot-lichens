@@ -1,0 +1,14 @@
+{
+  "name": "edge-lichens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lichens and moulds on the edge of a Bristorian Julia set: resist vs tolerate, on a board that is the fractal's boundary.",
+  "scripts": {
+    "play": "python3 -m http.server 8090",
+    "gates": "node gate_ode.mjs && node gate_agents.mjs",
+    "boards": "node edge_graph.mjs 0 && for p in 1 2 3 4 5 6 7; do node edge_graph.mjs $p; done && node export_boards.mjs",
+    "audit": "for p in 0 1 2 3; do node audit_j3.mjs $p; done",
+    "lib-check": "cd lib && sha256sum -c PINNED.sha256"
+  }
+}
