@@ -87,8 +87,13 @@ LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i;
 IDX.boards.filter((b) => b.conv).forEach((b) => { const o = document.createElement('option'); o.value = b.id; o.textContent = `${b.name} · ${b.run.N.toLocaleString()} cells`; $('bsel').append(o); });
 
 let GPU = null, B = null, engines = new Map();
-try { GPU = await getDevice(); $('adapter').textContent = `GPU: ${GPU.info.vendor || '?'} ${GPU.info.architecture || ''}`; $('train').disabled = false; }
-catch (e) { $('adapter').innerHTML = `<span class="bad">${e.message}</span>`; $('gate').disabled = true; }
+// The device can be refused while an earlier copy of this page is still finishing GPU work (a reload does not cancel work already sent;
+// Firefox said 'Not enough memory left', 11-25). So say why, and retry for a minute instead of giving up.
+$('gate').disabled = true;
+(async () => { for (let k = 0; k < 13; k++) { try { GPU = await getDevice(); $('adapter').textContent = `GPU: ${GPU.info.vendor || '?'} ${GPU.info.architecture || ''}`; $('train').disabled = false; $('gate').disabled = false; return; }
+  catch (e) { if (/no WebGPU/i.test(e.message)) { $('adapter').innerHTML = `<span class="bad">${e.message}</span>`; return; }
+    $('adapter').innerHTML = `<span class="bad">The GPU said: ${e.message}</span> <span class="dim">Often this is the last run of this page still finishing (a reload does not cancel work already sent to the GPU). ` +
+      (k < 12 ? `Trying again in 5 s (${k + 1} of 12)…` : `Gave up: close this tab, wait a minute, and open the page again.`) + `</span>`; if (k < 12) await new Promise((r) => setTimeout(r, 5000)); } } })();
 async function loadBoard(id) { const d = await (await fetch(`boards/${id}.json`)).json(); B = boardFromFlat(d.cells, d.E); B.id = id; engines = new Map();
   $('binfo').textContent = `${B.n.toLocaleString()} cells at 1/${B.E}. Opponents grow from a 12-cell clump around the cell farthest from your seed's centre, as in the probe builder.`; }
 $('bsel').onchange = async () => { await loadBoard(+$('bsel').value); game.reset(true); }; await loadBoard(+$('bsel').value);
@@ -134,18 +139,20 @@ function specsFor(probes, opps, S) { const spec = []; for (const p of probes) { 
 async function score(probes, opps, S, T, seed) { const spec = specsFor(probes, opps, S), E = engine(spec.length), r = await E.run(spec, { T, tail: Math.max(10, Math.round(T * TAIL_FRAC)), seed });
   const per = opps.length * S; return { ms: r.ms, fit: probes.map((_, i) => { const rs = r.results.slice(i * per, (i + 1) * per); return { margin: mean(rs.map((o) => o.you - o.opp)), ms: rs.map((o) => o.you - o.opp) }; }) }; }
 let stop = false, hist = [];
-$('stop').onclick = () => { stop = true; };
+$('stop').onclick = () => { stop = true; for (const E of engines.values()) E.cancel = true; $('tstat').textContent += ' · stopping…'; };
 $('train').onclick = async () => { $('train').disabled = true; $('stop').disabled = false; stop = false; hist = []; $('held').innerHTML = '';
   const opps = [...$('opps').selectedOptions].map((o) => +o.value); if (!opps.length) { $('tstat').textContent = 'pick at least one opponent'; $('train').disabled = false; return; }
   const P = +$('pop').value, S = +$('seeds').value, T = +$('tT').value, budget = +$('budget').value * 1000, ELITE = Math.max(2, Math.round(P / 4)), r = rng(20261125);
   let pop = Array.from({ length: P }, () => randProbe(r)), used = 0, gen = 0, best = null; game.reset();
-  while (used < budget && !stop) { gen++; const res = await score(pop, opps, S, T, 1000 + gen); used += res.ms;
+  while (used < budget && !stop) { gen++; let res; try { res = await score(pop, opps, S, T, 1000 + gen); } catch (e) { if (e.message !== 'stopped') throw e; break; } used += res.ms;
     const ranked = pop.map((p, i) => ({ ...p, fit: res.fit[i].margin })).sort((a, b) => b.fit - a.fit); best = ranked[0];
     hist.push({ x: used / 1000, best: ranked[0].fit, mean: mean(ranked.map((p) => p.fit)) }); drawChart(); game.land(best, gen, used);
     $('tstat').textContent = `generation ${gen} · ${(used / 1000).toFixed(1)} / ${budget / 1000} GPU-s · ${P * S * opps.length} matches per generation (${(res.ms / 1000).toFixed(2)} s)`;
     $('best').innerHTML = `<div class="note">Best this generation: r <b>${best.g.r}</b>, t <b>${best.g.t}</b>, margin <b>${best.fit >= 0 ? '+' : ''}${pct(best.fit)}</b> points at ${T} ticks.</div>`;
     const elite = ranked.slice(0, ELITE); pop = [...elite.map((e) => ({ g: e.g, seed: e.seed })), ...Array.from({ length: P - ELITE }, () => mutate(elite[Math.floor(r() * ELITE)], r))]; await sleep0(); }
-  $('tstat').textContent += ' · done'; $('stop').disabled = true; window.__train = { gen, used, best, hist };
+  $('stop').disabled = true; for (const E of engines.values()) E.cancel = false;
+  if (stop) { $('tstat').textContent += ' · stopped (the held-out check was not run; press train to start again)'; $('train').disabled = false; return; }
+  $('tstat').textContent += ' · done'; window.__train = { gen, used, best, hist };
   await heldOut(best, opps, used); $('train').disabled = false; };
 function drawChart() { const c = $('chart'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
   if (!hist.length) return; const xs = Math.max(...hist.map((o) => o.x)), lo = Math.min(0, ...hist.map((o) => o.mean)), hi = Math.max(0.01, ...hist.map((o) => o.best));

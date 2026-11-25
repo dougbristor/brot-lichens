@@ -63,6 +63,8 @@ export async function getDevice() {
   if (!navigator.gpu) throw new Error('This browser has no WebGPU (try Chrome or Edge).');
   const a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); if (!a) throw new Error('No WebGPU adapter.');
   const dev = await a.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: a.limits.maxStorageBufferBindingSize, maxBufferSize: a.limits.maxBufferSize } });
+  // 11-25 (Doug, Firefox: a reload did not stop a run, and the next load said 'Not enough memory left'): free the device when the page goes
+  addEventListener('pagehide', () => { try { dev.destroy(); } catch (e) {} });
   return { dev, info: a.info || {} };
 }
 
@@ -119,6 +121,8 @@ export class Engine {
         if (!len) continue; const wx = Math.ceil(len / WG);
         pass.setPipeline(this.pipe.propose); pass.dispatchWorkgroups(wx, M); pass.setPipeline(this.pipe.apply); pass.dispatchWorkgroups(wx, M); }
       pass.end(); dev.queue.submit([enc.finish()]);
+      // wait for each chunk: at most one chunk (50 ticks) is ever queued, so stop and reload end a run quickly (11-25)
+      if (!this.nosync) await dev.queue.onSubmittedWorkDone(); if (this.cancel) { this.cancel = false; throw new Error('stopped'); }
     }
     const enc = dev.createCommandEncoder(); enc.copyBufferToBuffer(this.cnt, 0, this.read, 0, B * 16); dev.queue.submit([enc.finish()]);
     await this.read.mapAsync(GPUMapMode.READ); const c = new Uint32Array(this.read.getMappedRange().slice(0)); this.read.unmap();

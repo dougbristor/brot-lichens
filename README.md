@@ -131,6 +131,11 @@ the last round keeps going. Colour by generation (blue first, yellow latest), re
 - Cost: the GPU time per generation with the game on is 2555 ms vs 2543 ms off (+0.5%, the main thread shares the wait). Training is unchanged (same held-out).
 - A show, not a ranking: a round is one seed and often short. The ranking is the held-out check.
 
+**Stop and reload (11-25, Doug in Firefox: a reload did not stop a run, and the next load said 'Not enough memory left').** The engine used to queue a whole
+generation on the GPU at once, and a reload cannot cancel GPU work already sent. Now it waits for each 50-tick chunk (cost ~3%: 2.68 vs 2.60 s per
+generation, alternating A/B), so **stop** ends a run in ~0.1 s and a reload mid-run is ready again in ~0.5 s; the device is freed on pagehide, and if the
+GPU still refuses, the page says why and retries for a minute. `Engine.nosync = true` turns the wait off (for timing only).
+
 ## Next
 1. Gate for the game on a graph: a known spatial result (e.g. pair approximation, or a lattice where tolerance/resistance outcomes are published) plus a plant.
 2. The game on the J3b graphs, largest piece only; compare with a same-degree random graph (does the *shape* matter, or only the degree?).

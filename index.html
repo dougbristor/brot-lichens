@@ -259,8 +259,8 @@ function frame(t) { const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (pr.sim && pr.live) stepMatch();
   if (st.dirty) { draw(); st.dirty = false; } requestAnimationFrame(frame); }
 // #board=<id>&probe=<code> (from the GPU trainer): open that board in the probe view with that probe loaded
-const H = new URLSearchParams(location.hash.slice(1)), hb = IDX.boards.find((b) => String(b.id) === H.get('board'));
+const HASH = new URLSearchParams(location.hash.slice(1)), hb = IDX.boards.find((b) => String(b.id) === HASH.get("board"));
 const first = hb || IDX.boards.find((b) => b.conv) || IDX.boards[0]; $('bsel').value = first.id; await load(first.id);
-if (H.get('probe')) { document.querySelector('#modes button[data-m=probe]').click(); loadCode(H.get('probe')); }
+if (HASH.get("probe")) { document.querySelector('#modes button[data-m=probe]').click(); loadCode(HASH.get("probe")); }
 requestAnimationFrame(frame);
 </script></body></html>
