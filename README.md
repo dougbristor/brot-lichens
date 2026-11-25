@@ -1,4 +1,4 @@
-# Edge lichens
+# Edge lichens (brot-lichens)
 
 Lichens and moulds on the boundary of a Bristorian Julia set. **The board is the edge itself:** the 1/32 cells that the set's boundary passes through,
 linked when they touch (26 neighbours). Each cell holds nothing or one lichen: plain **S**, **R** that resists (catches the mould less, grows slower)
@@ -99,3 +99,6 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
 4. Part B not audited at 20 starts; sval/24 and i 0.65 do not converge.
 
 Ideas log: `../ideas_20261125.md`
+
+## Licence
+MIT, see `LICENSE`. `lib/` is the Brot ecosystem's own code, under the same licence.
