@@ -44,6 +44,7 @@ with the pins in `lib/PINNED.sha256`. Rebuilt with it, the zero board matches th
 | `boards/` | the 8 J3b boards at 1/32 + `index.json` (gate state per board, gate W) |
 | `lib/` | vendored Bristorian square roots (see Rebuild) |
 | `trainer.html`, `gpu/sim.mjs` | the WebGPU trainer and its engine (see GPU trainer) |
+| `view.mjs`, `check_land.mjs` | the 3D view as a module (trainer's game); the control for `addLineage` |
 | `diag.mjs` | per-level trace of one c's inverse iteration (first-light tool for J1/J2) |
 | `runs/` | logs (evidence for every number below); `*_backup.mjs` = the code before each 11-25 change, from before the repo |
 
@@ -118,8 +119,19 @@ Random numbers are a counter hash, so there is no RNG state. A shader that does 
   First run (20 GPU-s, 8 generations, 512 matches each): best r 0.66 t 0 → **+14.1 ± 1.4** points vs random **−10.8 ± 0.8**: the baseline loses.
   0.69 held-out points per GPU-second. A link opens the trained probe in the probe builder (`#board=…&probe=…`).
 
+## While it trains: the in-training game (Doug 11-25: "waiting with nothing feels like dead space. like silence on the radio")
+A live CPU game under the trainer's chart (`view.mjs` = the board's 3D view as a module). Generation 1's best plays alone on the empty edge; each new best
+starts a **fresh round** in which every best so far is planted at once at its own seed (a shared cell goes to one claimant at random). After training,
+the last round keeps going. Colour by generation (blue first, yellow latest), red = mould, a share bar, a legend.
+- **Why rounds, not late landings** (the first build, Doug chose rounds after seeing it): a 12-cell seed landed on a full board dies out, because births only
+  go into empty cells. Generation 1 held 80% and every later lander was gone within a few hundred ticks; clearing a 600-cell crater on landing left it ~1%.
+  Under these rules, incumbency beats training.
+- `makeSim.addLineage(genome, cells)` (landing mid-game) is kept and checked: `node check_land.mjs [old lichens.mjs]` → seeded == landed at tick 0,
+  plants (wrong genome, wrong cells) fire, and runs that never land are byte-exact with the old code.
+- Cost: the GPU time per generation with the game on is 2555 ms vs 2543 ms off (+0.5%, the main thread shares the wait). Training is unchanged (same held-out).
+- A show, not a ranking: a round is one seed and often short. The ranking is the held-out check.
+
 ## Next
-0. Doug 11-25, the in-training game: while the GPU trains, a live game on the board where each generation's best lands as it arrives (gen 0 at tick 0, the most trained last), and they keep playing. 'Silence on the radio.' Needs `sim.addLineage` mid-game.
 1. Gate for the game on a graph: a known spatial result (e.g. pair approximation, or a lattice where tolerance/resistance outcomes are published) plus a plant.
 2. The game on the J3b graphs, largest piece only; compare with a same-degree random graph (does the *shape* matter, or only the degree?).
 3. The articulation share is ≈ 0 at 1/32: test finer eps, or use another measure of shape (degree spread, cut size).

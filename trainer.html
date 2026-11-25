@@ -57,11 +57,12 @@
     <div id="best"></div></section>
 
   <section><h2>While it trains · the generations play</h2>
-    <div class="note" style="margin-top:0">A live game on the board (the CPU sim, the same one the gate checks). Generation 1's best lands on the empty edge at tick 0.
-      Each later generation's best lands the moment it is found, as a clean 12-cell seed at its own place, overwriting whatever is there.
-      A best that is the same probe as the last one to land does not land again. Colour runs from the first generation (blue) to the latest (yellow); red = mould.
-      Everyone keeps playing after the training ends. <b>This is a show, not a ranking</b>: a late lander arrives on a board that is already full, so it
-      is judged here on worse terms than the early ones. The ranking is section 3.</div>
+    <div class="note" style="margin-top:0">A live game on the board (the CPU sim, the same one the gate checks). Generation 1's best plays alone on the empty edge.
+      Each time training finds a new best, a fresh round starts: every best found so far is planted at once at its own 12-cell seed, the newest included
+      (a cell two seeds share goes to one of them at random), and they play until the next best arrives. After training ends, the last round keeps going.
+      A best that is the same probe as the last one does not start a round. Colour runs from the first generation (blue) to the latest (yellow); red = mould.
+      Why rounds: landing late on a full board never works here. Births only go into empty cells, so a 12-cell seed dropped onto a full edge dies out
+      (it held about 1% even when we cleared a 600-cell crater for it). <b>This is a show, not a ranking</b>: a round is one seed and often short. The ranking is section 3.</div>
     <canvas id="gview"></canvas><canvas id="gbar"></canvas>
     <div class="row"><label style="width:auto"><input id="gon" type="checkbox" checked> play the game while training</label>
       <label style="width:auto"><span style="width:auto">ticks per frame</span><select id="gspeed" style="width:70px"><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
@@ -170,18 +171,21 @@ const game = (() => {
   const STOPS = ['#3a56c8', '#2b9fb0', '#69c46a', '#d8d44a', '#f7f1b0'].map(hex), EMPTY = hex('#262b33'), RED = hex('#e5484d');
   const rampc = (u) => { u = Math.max(0, Math.min(1, u)) * (STOPS.length - 1); const i = Math.min(STOPS.length - 2, Math.floor(u)), f = u - i; return STOPS[i].map((v, k) => v + (STOPS[i + 1][k] - v) * f); };
   const mixc = (a, b, f) => a.map((v, k) => v + (b[k] - v) * f);
-  const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [] };
+  const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [], round: 0 };
   const view = makeView($('gview'), (i) => { if (!G.sim) return EMPTY; const g = G.sim.G[i]; return g < 0 ? EMPTY : G.sim.Inf[i] ? G.inf[g] : G.col[g]; });
   view.setBoard(B);
   const recolour = () => { const n = G.landers.length, g0 = G.landers[0]?.gen || 1, g1 = G.landers.at(-1)?.gen || 1;
     G.col = G.landers.map((l) => rampc(g1 > g0 ? (l.gen - g0) / (g1 - g0) : 0)); G.inf = G.col.map((c) => mixc(c, RED, 0.65)); };
   const same = (a, b) => a && b && a.g.r === b.g.r && a.g.t === b.g.t && a.seed.length === b.seed.length && a.seed.every((v, i) => v === b.seed[i]);
-  G.reset = (boardChanged) => { G.sim = null; G.landers = []; G.held = []; G.peak = []; recolour(); if (boardChanged) view.setBoard(B); view.dirty = true; legend(); };
+  G.reset = (boardChanged) => { G.sim = null; G.landers = []; G.held = []; G.peak = []; G.round = 0; recolour(); if (boardChanged) view.setBoard(B); view.dirty = true; legend(); };
   G.land = (best, gen, used) => { if (!$('gon').checked) return; const last = G.landers.at(-1), pr = { g: { ...best.g }, seed: best.seed.slice() };
     if (same(last, pr)) return;
-    if (!G.sim) G.sim = makeSim(B.adj, BASE, null, { seed: 20261125, inf0: 0, lineages: [pr.g], seeds: [{ lineage: 0, cells: pr.seed }] });
-    else G.sim.addLineage(pr.g, pr.seed);
-    G.landers.push({ ...pr, gen, at: G.sim.k, gpus: used / 1000, fit: best.fit }); G.held.push(pr.seed.length); G.peak.push(pr.seed.length); recolour(); tally(); legend(); };
+    G.landers.push({ ...pr, gen, gpus: used / 1000, fit: best.fit }); G.round++;
+    // a fresh round: every lander so far planted at once; a shared cell goes to one claimant, drawn at random (makeSim's seeds are first come)
+    const r = rng(7919 * G.round), want = new Map(); G.landers.forEach((l, i) => l.seed.forEach((c) => { if (!want.has(c)) want.set(c, []); want.get(c).push(i); }));
+    const cells = G.landers.map(() => []); for (const [c, ls] of want) cells[ls[Math.floor(r() * ls.length)]].push(c);
+    G.sim = makeSim(B.adj, BASE, null, { seed: 20261125 + G.round, inf0: 0, lineages: G.landers.map((l) => l.g), seeds: cells.map((cs, i) => ({ lineage: i, cells: cs })) });
+    G.peak = G.landers.map(() => 0); recolour(); tally(); legend(); };
   function tally() { const c = new Array(G.landers.length).fill(0), s = G.sim; for (let i = 0; i < s.N; i++) { const g = s.G[i]; if (g >= 0) c[g]++; }
     G.held = c; c.forEach((v, i) => { if (v > G.peak[i]) G.peak[i] = v; }); }
   function bar() { const c = $('gbar'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
@@ -189,9 +193,9 @@ const game = (() => {
   function legend() { const el = $('glegend'); if (!G.landers.length) { el.innerHTML = '<div class="dim">Nothing has landed yet. Press train.</div>'; bar(); $('gtick').textContent = ''; return; }
     const N = G.sim.N, rows = G.landers.map((l, i) => ({ l, i })), show = rows.length > 12 ? [...rows.slice(0, 2), ...rows.slice(-10)] : rows, hidden = rows.length - show.length;
     const alive = G.held.filter((v) => v > 0).length;
-    el.innerHTML = show.map(({ l, i }) => `<div class="${G.held[i] ? '' : 'gone'}"><span class="sw" style="background:rgb(${G.col[i].map(Math.round).join(',')})"></span>gen ${l.gen} · r ${l.g.r} t ${l.g.t} · landed tick ${l.at} · holds <b>${pct(G.held[i] / N)}%</b> (peak ${pct(G.peak[i] / N)}%)</div>`).join('') +
-      (hidden ? `<div class="dim">… and ${hidden} more in between</div>` : '') + `<div class="dim">${G.landers.length} landed · ${alive} still on the board</div>`;
-    bar(); $('gtick').textContent = `tick ${G.sim.k}`; }
+    el.innerHTML = show.map(({ l, i }) => `<div class="${G.held[i] ? '' : 'gone'}"><span class="sw" style="background:rgb(${G.col[i].map(Math.round).join(',')})"></span>gen ${l.gen} · r ${l.g.r} t ${l.g.t} · holds <b>${pct(G.held[i] / N)}%</b> (round peak ${pct(G.peak[i] / N)}%)</div>`).join('') +
+      (hidden ? `<div class="dim">… and ${hidden} more in between</div>` : '') + `<div class="dim">${G.landers.length} bests so far · ${alive} still on the board this round</div>`;
+    bar(); $('gtick').textContent = `round ${G.round} · tick ${G.sim.k}`; }
   let n = 0;
   function frame() { if (G.sim) { const k = +$('gspeed').value; for (let i = 0; i < k; i++) G.sim.step(); n += k; if (n >= 10) { n = 0; tally(); legend(); } view.dirty = true; }
     if (view.dirty || view.spin) view.draw(); requestAnimationFrame(frame); }
