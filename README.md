@@ -43,6 +43,7 @@ with the pins in `lib/PINNED.sha256`. Rebuilt with it, the zero board matches th
 | `index.html` | the board page (play) |
 | `boards/` | the 8 J3b boards at 1/32 + `index.json` (gate state per board, gate W) |
 | `lib/` | vendored Bristorian square roots (see Rebuild) |
+| `trainer.html`, `gpu/sim.mjs` | the WebGPU trainer and its engine (see GPU trainer) |
 | `diag.mjs` | per-level trace of one c's inverse iteration (first-light tool for J1/J2) |
 | `runs/` | logs (evidence for every number below); `*_backup.mjs` = the code before each 11-25 change, from before the repo |
 
@@ -104,8 +105,21 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
   First look (zero board): r 0.8 t 0.2 vs plain, genome edge **+15.2 ± 5.5**. Same-genome splits read 0 by construction; that is not a check.
 - Pages: https://dougbristor.github.io/brot-lichens/
 
+## GPU trainer (step 3, 11-25): `trainer.html` + `gpu/sim.mjs`
+WebGPU (WGSL compute from JS; not wasm). B matches at once on one board. Each tick visits the 8 parity classes (x&1, y&1, z&1; no two cells of a class touch,
+`parityClasses` checks it: 0 touching, and a merged-class plant gives 60484) in random order. A birth is a claim race (atomicMax on a random priority).
+Random numbers are a counter hash, so there is no RNG state. A shader that does not compile now throws (it once came back as all zeros: `trait` is reserved in WGSL).
+- **Gate (GPU vs the CPU oracle, 24 seeds, zero board, r .8 t .2 vs plain): PASS.** You 49.2 vs 48.3 · opp 28.5 vs 29.2 · mould 6.1 vs 6.3 (limits 3 SE + 1 point).
+  Plants fire: lineage-index bug (opp +9.5 vs limit 2.5), no recovery (you +4.8 vs 3.1). A plant counts only when the real run passes.
+  Speed: 24 full matches take 0.74 s on the GPU (Quadro P4000) vs ~80 s on the CPU.
+- **Training:** (mu + lambda) evolution of probes (genome + 12-cell seed), every probe re-scored on fresh seeds each generation.
+  Approximation knobs: match ticks (600 by default), seeds per probe, population. Budget in GPU-seconds (wall clock of the GPU runs).
+- **Held out:** the best at 1500 ticks on 16 unseen seeds vs the selected opponents, against 16 random probes; the random ones must lose by > 2 SE.
+  First run (20 GPU-s, 8 generations, 512 matches each): best r 0.66 t 0 → **+14.1 ± 1.4** points vs random **−10.8 ± 0.8**: the baseline loses.
+  0.69 held-out points per GPU-second. A link opens the trained probe in the probe builder (`#board=…&probe=…`).
+
 ## Next
-0. Step 3: GPU match trainer (WebGPU, batch of matches, budget in GPU-seconds; the CPU `makeSim` is the oracle).
+0. Doug 11-25, the in-training game: while the GPU trains, a live game on the board where each generation's best lands as it arrives (gen 0 at tick 0, the most trained last), and they keep playing. 'Silence on the radio.' Needs `sim.addLineage` mid-game.
 1. Gate for the game on a graph: a known spatial result (e.g. pair approximation, or a lattice where tolerance/resistance outcomes are published) plus a plant.
 2. The game on the J3b graphs, largest piece only; compare with a same-degree random graph (does the *shape* matter, or only the degree?).
 3. The articulation share is ≈ 0 at 1/32: test finer eps, or use another measure of shape (degree spread, cut size).

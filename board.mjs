@@ -22,3 +22,31 @@ export function stats(adj, perCell = false) { // perCell: also return comp (comp
   const res = { N, components: nc, largest_frac: +(nb / N).toFixed(3), mean_degree: +(deg / N).toFixed(2), articulation_frac: +(arts / nb).toFixed(3) };
   return perCell ? { ...res, comp, art, big } : res;
 }
+
+// ---- shared by the board page and the GPU trainer (11-25, step 3) ----
+// boardFromFlat: integer cell coords at 1/E (flat x,y,z...) -> { n, E, coords, pos (cell centres), keys, adj }.
+export function boardFromFlat(flat, E) {
+  const n = flat.length / 3, coords = Int32Array.from(flat), pos = new Float32Array(flat.length), keys = new Array(n);
+  for (let i = 0; i < n; i++) { keys[i] = `${flat[3 * i]},${flat[3 * i + 1]},${flat[3 * i + 2]}`; for (let d = 0; d < 3; d++) pos[3 * i + d] = (flat[3 * i + d] + 0.5) / E; }
+  return { n, E, coords, pos, keys, adj: graphOf(keys) };
+}
+// clumpAt: breadth-first clump of k cells from `start`, skipping `avoid`.
+export function clumpAt(B, start, k, avoid = new Set()) {
+  const out = [], seen = new Set([start]), q = [start];
+  while (q.length && out.length < k) { const u = q.shift(); if (!avoid.has(u)) out.push(u); for (const v of B.adj[u]) if (!seen.has(v)) { seen.add(v); q.push(v); } }
+  return out;
+}
+// farClump: the opponent's seed. A k-cell clump around the cell farthest from the centre of `seed` (needs B.pos, B.adj, B.n).
+export function farClump(B, seed, k) {
+  if (!seed.length) return []; const c = [0, 0, 0], L = seed.length; for (const i of seed) for (let d = 0; d < 3; d++) c[d] += B.pos[3 * i + d];
+  let far = 0, fd = -1; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] * L - c[0]) ** 2 + (B.pos[3 * i + 1] * L - c[1]) ** 2 + (B.pos[3 * i + 2] * L - c[2]) ** 2; if (d > fd) { fd = d; far = i; } }
+  return clumpAt(B, far, k, new Set(seed));
+}
+// parityClasses: 8 lists by (x&1, y&1, z&1). In the 26-neighbourhood two cells of one class never touch (a neighbour differs by 1 in some
+// coordinate), so a class can update in parallel. `touching` counts violations: it must print 0, and a plant that merges classes must not.
+export function parityClasses(B) {
+  const cls = Array.from({ length: 8 }, () => []), of = new Uint8Array(B.n);
+  for (let i = 0; i < B.n; i++) { const c = (B.coords[3 * i] & 1) | ((B.coords[3 * i + 1] & 1) << 1) | ((B.coords[3 * i + 2] & 1) << 2); of[i] = c; cls[c].push(i); }
+  let touching = 0; for (let i = 0; i < B.n; i++) for (const j of B.adj[i]) if (of[i] === of[j]) touching++;
+  return { cls, of, touching };
+}

@@ -38,7 +38,7 @@
     <div id="hint">drag to turn · wheel to zoom · double-click to reset · axes w0 w1 w2 as stored</div></div>
   <aside>
     <h1>Edge lichens · the board</h1>
-    <div class="sub">The board is the edge of a Bristorian Julia set: cells 1/32 wide, linked when they touch (26 neighbours).</div>
+    <div class="sub">The board is the edge of a Bristorian Julia set: cells 1/32 wide, linked when they touch (26 neighbours). <a href="trainer.html" style="color:#8cc0f2">GPU trainer →</a></div>
     <select id="bsel"></select>
     <h2>View</h2>
     <div class="seg" id="modes"><button data-m="edge" class="on">edge</button><button data-m="plant">plant G1</button><button data-m="game">lichens</button><button data-m="probe">probe</button></div>
@@ -86,7 +86,7 @@
     <div class="row" style="margin-top:12px"><label>spin</label><input type="checkbox" id="spin" checked></div>
   </aside></div>
 <script type="module">
-import { graphOf, stats } from './board.mjs';
+import { graphOf, stats, farClump } from './board.mjs';
 import { makeSim, BASE, rng } from './lichens.mjs';
 
 const $ = (id) => document.getElementById(id), cv = $('cv'), ctx = cv.getContext('2d');
@@ -160,11 +160,7 @@ const pr = { g: { r: 0.5, t: 0.5 }, seed: [], opp: 0, sim: null, live: false, hi
 const YOU = hex('#4c9be8'), OPP = hex('#e8a33c');
 LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; $('opp').append(e); });
 function nearestCell(B, x, y, z) { let best = 0, bd = Infinity; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] - x) ** 2 + (B.pos[3 * i + 1] - y) ** 2 + (B.pos[3 * i + 2] - z) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
-function oppSeed() { const B = st.board; if (!pr.seed.length) return []; let c = [0, 0, 0]; for (const i of pr.seed) for (let d = 0; d < 3; d++) c[d] += B.pos[3 * i + d];
-  let far = 0, fd = -1; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] * pr.seed.length - c[0]) ** 2 + (B.pos[3 * i + 1] * pr.seed.length - c[1]) ** 2 + (B.pos[3 * i + 2] * pr.seed.length - c[2]) ** 2; if (d > fd) { fd = d; far = i; } }
-  const mine = new Set(pr.seed), out = [], seen = new Set([far]), q = [far];
-  while (q.length && out.length < SEEDMAX) { const u = q.shift(); if (!mine.has(u)) out.push(u); for (const v of B.adj[u]) if (!seen.has(v)) { seen.add(v); q.push(v); } }
-  return out; }
+function oppSeed() { return farClump(st.board, pr.seed, SEEDMAX); } // shared with the GPU trainer (board.mjs)
 let oppCells = new Set();
 function probeColour(B, i) {
   if (pr.sim) { const g = pr.sim.G[i]; if (g < 0) return EMPTY; const c = g === 0 ? YOU : OPP; return pr.sim.Inf[i] ? mixc(c, RED, 0.6) : c; }
@@ -262,5 +258,9 @@ function frame(t) { const dt = Math.min(0.05, (t - last) / 1000); last = t;
     readout(); drawChart(); st.dirty = true; if (!st.hist.at(-1).density) { st.playing = false; $('play').textContent = '▶ play'; } }
   if (pr.sim && pr.live) stepMatch();
   if (st.dirty) { draw(); st.dirty = false; } requestAnimationFrame(frame); }
-const first = IDX.boards.find((b) => b.conv) || IDX.boards[0]; $('bsel').value = first.id; await load(first.id); requestAnimationFrame(frame);
+// #board=<id>&probe=<code> (from the GPU trainer): open that board in the probe view with that probe loaded
+const H = new URLSearchParams(location.hash.slice(1)), hb = IDX.boards.find((b) => String(b.id) === H.get('board'));
+const first = hb || IDX.boards.find((b) => b.conv) || IDX.boards[0]; $('bsel').value = first.id; await load(first.id);
+if (H.get('probe')) { document.querySelector('#modes button[data-m=probe]').click(); loadCode(H.get('probe')); }
+requestAnimationFrame(frame);
 </script></body></html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edge lichens · GPU trainer</title>
+<!-- insights 11-25, step 3. Trains probes (genome + seed) on the GPU (gpu/sim.mjs, WebGPU) within a budget of GPU-seconds.
+     The CPU makeSim (lichens.mjs) is the oracle: the gate below must pass before a trained number means anything. No sound. -->
+<style>
+  :root { --bg:#0c0e11; --panel:#14171c; --line:#252a31; --ink:#d9dde3; --dim:#8b939e; --bad:#e5484d; --ok:#5fc46a; --warn:#e8b04c; --you:#4c9be8; --opp:#e8a33c; }
+  * { box-sizing:border-box; } html,body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.5 system-ui,sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:22px 20px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; } .sub { color:var(--dim); margin-bottom:18px; } a { color:#8cc0f2; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:14px 0; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 10px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px 18px; }
+  label { display:flex; gap:8px; align-items:center; color:var(--dim); } label > span { flex:none; width:120px; }
+  input[type=number], select { font:inherit; color:var(--ink); background:#1c2027; border:1px solid var(--line); border-radius:5px; padding:3px 6px; width:100%; }
+  button { font:inherit; color:var(--ink); background:#22303f; border:1px solid #3a4b5e; border-radius:5px; padding:5px 12px; cursor:pointer; } button:disabled { opacity:.45; cursor:default; }
+  table { border-collapse:collapse; font-variant-numeric:tabular-nums; } td, th { padding:3px 10px; text-align:right; } th { color:var(--dim); font-weight:500; } td:first-child, th:first-child { text-align:left; }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); font-weight:600; } .warn { color:var(--warn); } .dim { color:var(--dim); }
+  .note { color:var(--dim); font-size:12px; margin-top:8px; } .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  canvas { width:100%; height:180px; display:block; background:#0f1215; border:1px solid var(--line); border-radius:4px; margin-top:10px; }
+  code { font:11px ui-monospace,monospace; color:#c5ccd6; word-break:break-all; }
+</style></head>
+<body><main>
+  <h1>Edge lichens · GPU trainer</h1>
+  <div class="sub">Probes (a genome and a 12-cell seed) evolve on the GPU within a budget of GPU-seconds. The board is the edge of a Bristorian Julia set.
+    <a href="./">← the board and probe builder</a> · <span id="adapter" class="dim">looking for a GPU…</span></div>
+
+  <section><h2>Board</h2>
+    <div class="grid"><label><span>board</span><select id="bsel"></select></label></div>
+    <div class="note" id="binfo"></div></section>
+
+  <section><h2>1 · Gate: the GPU against the CPU</h2>
+    <div class="note" style="margin-top:0">The GPU updates the 8 parity classes in turn; the CPU updates cells one at a time in a random order. Same rules, a different order, so the
+      outcomes should agree in distribution. One match (a 12-cell clump with genome r 0.8, t 0.2 against plain) is played on both over the same number of seeds.
+      Pass = every mean within 3 standard errors + 1 point. Two plants, a lineage-index bug and no recovery, must <b>fail</b> it.</div>
+    <div class="row"><label style="width:auto"><span style="width:auto">seeds</span><input id="gk" type="number" value="24" min="4" max="128" style="width:70px"></label>
+      <button id="gate">run the gate</button><span id="gstat" class="dim"></span></div>
+    <div id="gout"></div></section>
+
+  <section><h2>2 · Train</h2>
+    <div class="grid">
+      <label><span>opponents</span><select id="opps" multiple size="4"></select></label>
+      <div>
+        <label><span>population</span><input id="pop" type="number" value="32" min="8" max="256"></label>
+        <label><span>seeds per probe</span><input id="seeds" type="number" value="4" min="1" max="32"></label>
+        <label><span>match ticks</span><input id="tT" type="number" value="600" min="100" max="1500" step="100"></label>
+        <label><span>budget (GPU-s)</span><input id="budget" type="number" value="60" min="5" max="3600"></label>
+      </div></div>
+    <div class="note">Approximation knobs. <b>Match ticks</b> below 1500 are cheaper but less like the real match, and <b>seeds per probe</b> trades noise for cost.
+      The budget is what the GPU runs took, wall clock. The best probe is always judged at the real length on held-out seeds.</div>
+    <div class="row"><button id="train" disabled>train</button><button id="stop" disabled>stop</button><span id="tstat" class="dim"></span></div>
+    <canvas id="chart"></canvas>
+    <div class="note"><span style="color:var(--you)">━</span> best margin in the generation · <span style="color:#8b939e">━</span> population mean ·
+      x = GPU-seconds. Margin = your share of the board minus the opponent's (training length, fresh seeds each generation).</div>
+    <div id="best"></div></section>
+
+  <section><h2>3 · Held out: the best against random probes</h2>
+    <div class="note" style="margin-top:0">Real length (1500 ticks), 16 seeds never used in training, each selected opponent. Baseline: 16 random probes on the same
+      seeds. The trained probe must beat them by more than 2 standard errors; otherwise the training learned nothing that holds.</div>
+    <div id="held"></div></section>
+</main>
+<script type="module">
+import { boardFromFlat, clumpAt, farClump } from './board.mjs';
+import { makeSim, BASE, rng } from './lichens.mjs';
+import { getDevice, Engine } from './gpu/sim.mjs';
+
+const $ = (id) => document.getElementById(id), IDX = await (await fetch('boards/index.json')).json();
+const LIB = [{ name: 'plain (0, 0)', g: { r: 0, t: 0 } }, { name: 'resister (1, 0)', g: { r: 1, t: 0 } }, { name: 'tolerator (0, 1)', g: { r: 0, t: 1 } }, { name: 'half and half (.5, .5)', g: { r: 0.5, t: 0.5 } }];
+const SEEDMAX = 12, TAIL_FRAC = 0.2;
+LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; e.selected = true; $('opps').append(e); });
+IDX.boards.filter((b) => b.conv).forEach((b) => { const o = document.createElement('option'); o.value = b.id; o.textContent = `${b.name} · ${b.run.N.toLocaleString()} cells`; $('bsel').append(o); });
+
+let GPU = null, B = null, engines = new Map();
+try { GPU = await getDevice(); $('adapter').textContent = `GPU: ${GPU.info.vendor || '?'} ${GPU.info.architecture || ''}`; $('train').disabled = false; }
+catch (e) { $('adapter').innerHTML = `<span class="bad">${e.message}</span>`; $('gate').disabled = true; }
+async function loadBoard(id) { const d = await (await fetch(`boards/${id}.json`)).json(); B = boardFromFlat(d.cells, d.E); B.id = id; engines = new Map();
+  $('binfo').textContent = `${B.n.toLocaleString()} cells at 1/${B.E}. Opponents grow from a 12-cell clump around the cell farthest from your seed's centre, as in the probe builder.`; }
+$('bsel').onchange = () => loadBoard(+$('bsel').value); await loadBoard(+$('bsel').value);
+const engine = (n) => { const k = n; if (!engines.has(k)) { engines.clear(); engines.set(k, new Engine(GPU.dev, B, n)); } return engines.get(k); };
+
+// ---- shared scoring, identical to the probe builder: sample every 10 ticks after T - tail, mean share of the board
+function cpuMatch(g0, c0, g1, c1, seed, T, tail) { const sim = makeSim(B.adj, BASE, null, { seed, inf0: 0, lineages: [g0, g1], seeds: [{ lineage: 0, cells: c0 }, { lineage: 1, cells: c1 }] });
+  let a = 0, b = 0, y = 0, n = 0, k = 0; while (sim.k < T) { sim.step(); if (sim.k % 10 === 0 && sim.k > T - tail) { k++; let o = 0; for (let i = 0; i < sim.N; i++) { const g = sim.G[i]; if (g >= 0) { o++; if (g === 0) a++; else b++; y += sim.Inf[i]; } } n += o; } }
+  return { you: a / k / sim.N, opp: b / k / sim.N, mould: n ? y / n : 0 }; }
+const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length, sd = (a) => { const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / Math.max(1, a.length - 1)); };
+const pct = (v) => (100 * v).toFixed(1), sleep0 = () => new Promise((r) => setTimeout(r));
+
+// ---- 1 gate
+$('gate').onclick = async () => { $('gate').disabled = true; const K = +$('gk').value, T = 1500, tail = 300;
+  const c0 = clumpAt(B, 0, SEEDMAX), c1 = farClump(B, c0, SEEDMAX), g0 = { r: 0.8, t: 0.2 }, g1 = LIB[0].g, cpu = [];
+  for (let s = 1; s <= K; s++) { $('gstat').textContent = `CPU seed ${s} / ${K}…`; await sleep0(); cpu.push(cpuMatch(g0, c0, g1, c1, s, T, tail)); }
+  const E = engine(K), spec = Array.from({ length: K }, () => ({ genomes: [g0, g1], cells: [c0, c1] }));
+  const runs = {}; for (const [name, plant] of [['GPU', 0], ['plant: lineage-index bug', 1], ['plant: no recovery', 2]]) { $('gstat').textContent = `${name}…`; await sleep0();
+    // one GPU run per seed batch: each match in the batch is a different seed (the match index enters the hash)
+    const r = await E.run(spec, { T, tail, seed: 1, plant }); runs[name] = r; }
+  const Q = ['you', 'opp', 'mould'], cpuQ = Object.fromEntries(Q.map((q) => [q, cpu.map((o) => o[q])]));
+  const judge = (res) => Q.map((q) => { const g = res.results.map((o) => o[q]), d = mean(g) - mean(cpuQ[q]), se = Math.sqrt(sd(g) ** 2 / g.length + sd(cpuQ[q]) ** 2 / cpuQ[q].length), lim = 3 * se + 0.01;
+    return { q, cpu: mean(cpuQ[q]), gpu: mean(g), d, lim, ok: Math.abs(d) <= lim }; });
+  // a plant only counts if the real run passes: when the engine itself is broken, everything 'fires' (11-25)
+  const rows = Object.entries(runs).map(([name, r]) => ({ name, j: judge(r), ms: r.ms })), main = rows[0], pass = main.j.every((x) => x.ok), plantsFire = rows.slice(1).map((r) => pass && !r.j.every((x) => x.ok));
+  $('gout').innerHTML = `<table><tr><th></th>${Q.map((q) => `<th>${q} CPU</th><th>GPU</th><th>|Δ| ≤ limit</th>`).join('')}<th>GPU time</th><th>verdict</th></tr>` +
+    rows.map((r, i) => `<tr><td>${r.name}</td>${r.j.map((x) => `<td>${pct(x.cpu)}</td><td>${pct(x.gpu)}</td><td class="${x.ok ? 'ok' : 'bad'}">${pct(Math.abs(x.d))} ≤ ${pct(x.lim)}</td>`).join('')}<td>${(r.ms / 1000).toFixed(2)} s</td>` +
+      `<td class="${i === 0 ? (pass ? 'ok' : 'bad') : (plantsFire[i - 1] ? 'ok' : 'bad')}">${i === 0 ? (pass ? 'GATE PASS' : 'GATE FAIL') : (plantsFire[i - 1] ? 'fires (ok)' : 'does NOT fire (broken)')}</td></tr>`).join('') + '</table>' +
+    `<div class="note">${K} seeds each. Values are % of the board (mould: % of lichens infected). GPU and CPU use different random streams, so they agree in distribution, not seed by seed.</div>`;
+  window.__gate = { pass, plantsFire, rows }; $('gstat').textContent = ''; $('gate').disabled = false; };
+
+// ---- 2 train: (mu + lambda) evolution, every probe re-scored on fresh seeds each generation (so a lucky elite does not stay)
+const randGenome = (r) => { let a = r(), b = r(); if (a + b > 1) { a = 1 - a; b = 1 - b; } return { r: +a.toFixed(3), t: +b.toFixed(3) }; };
+const randProbe = (r) => ({ g: randGenome(r), seed: clumpAt(B, Math.floor(r() * B.n), SEEDMAX) });
+function mutate(pr, r) { const g = { r: pr.g.r + (r() - 0.5) * 0.16, t: pr.g.t + (r() - 0.5) * 0.16 }; g.r = Math.max(0, g.r); g.t = Math.max(0, g.t);
+  const s = g.r + g.t; if (s > 1) { g.r /= s; g.t /= s; } g.r = +g.r.toFixed(3); g.t = +g.t.toFixed(3);
+  let seed = pr.seed.slice(); const u = r();
+  if (u < 0.1) seed = clumpAt(B, Math.floor(r() * B.n), SEEDMAX);
+  else if (u < 0.6) { const have = new Set(seed), moves = 1 + Math.floor(r() * 3);
+    for (let m = 0; m < moves; m++) { const k = Math.floor(r() * seed.length), nb = B.adj[seed[k]]; if (!nb.length) continue; const v = nb[Math.floor(r() * nb.length)]; if (!have.has(v)) { have.delete(seed[k]); seed[k] = v; have.add(v); } } }
+  return { g, seed }; }
+function specsFor(probes, opps, S) { const spec = []; for (const p of probes) { const oc = farClump(B, p.seed, SEEDMAX); for (const o of opps) for (let s = 0; s < S; s++) spec.push({ genomes: [p.g, LIB[o].g], cells: [p.seed, oc] }); } return spec; }
+async function score(probes, opps, S, T, seed) { const spec = specsFor(probes, opps, S), E = engine(spec.length), r = await E.run(spec, { T, tail: Math.max(10, Math.round(T * TAIL_FRAC)), seed });
+  const per = opps.length * S; return { ms: r.ms, fit: probes.map((_, i) => { const rs = r.results.slice(i * per, (i + 1) * per); return { margin: mean(rs.map((o) => o.you - o.opp)), ms: rs.map((o) => o.you - o.opp) }; }) }; }
+let stop = false, hist = [];
+$('stop').onclick = () => { stop = true; };
+$('train').onclick = async () => { $('train').disabled = true; $('stop').disabled = false; stop = false; hist = []; $('held').innerHTML = '';
+  const opps = [...$('opps').selectedOptions].map((o) => +o.value); if (!opps.length) { $('tstat').textContent = 'pick at least one opponent'; $('train').disabled = false; return; }
+  const P = +$('pop').value, S = +$('seeds').value, T = +$('tT').value, budget = +$('budget').value * 1000, ELITE = Math.max(2, Math.round(P / 4)), r = rng(20261125);
+  let pop = Array.from({ length: P }, () => randProbe(r)), used = 0, gen = 0, best = null;
+  while (used < budget && !stop) { gen++; const res = await score(pop, opps, S, T, 1000 + gen); used += res.ms;
+    const ranked = pop.map((p, i) => ({ ...p, fit: res.fit[i].margin })).sort((a, b) => b.fit - a.fit); best = ranked[0];
+    hist.push({ x: used / 1000, best: ranked[0].fit, mean: mean(ranked.map((p) => p.fit)) }); drawChart();
+    $('tstat').textContent = `generation ${gen} · ${(used / 1000).toFixed(1)} / ${budget / 1000} GPU-s · ${P * S * opps.length} matches per generation (${(res.ms / 1000).toFixed(2)} s)`;
+    $('best').innerHTML = `<div class="note">Best this generation: r <b>${best.g.r}</b>, t <b>${best.g.t}</b>, margin <b>${best.fit >= 0 ? '+' : ''}${pct(best.fit)}</b> points at ${T} ticks.</div>`;
+    const elite = ranked.slice(0, ELITE); pop = [...elite.map((e) => ({ g: e.g, seed: e.seed })), ...Array.from({ length: P - ELITE }, () => mutate(elite[Math.floor(r() * ELITE)], r))]; await sleep0(); }
+  $('tstat').textContent += ' · done'; $('stop').disabled = true; window.__train = { gen, used, best, hist };
+  await heldOut(best, opps, used); $('train').disabled = false; };
+function drawChart() { const c = $('chart'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
+  if (!hist.length) return; const xs = Math.max(...hist.map((o) => o.x)), lo = Math.min(0, ...hist.map((o) => o.mean)), hi = Math.max(0.01, ...hist.map((o) => o.best));
+  const X = (x) => 6 + (x / xs) * (w - 12), Y = (v) => h - 8 - ((v - lo) / (hi - lo)) * (h - 16);
+  g.strokeStyle = '#2a3038'; g.beginPath(); g.moveTo(0, Y(0)); g.lineTo(w, Y(0)); g.stroke();
+  for (const [k, col] of [['mean', '#8b939e'], ['best', '#4c9be8']]) { g.strokeStyle = col; g.lineWidth = 1.6 * dpr; g.beginPath(); hist.forEach((o, i) => (i ? g.lineTo : g.moveTo).call(g, X(o.x), Y(o[k]))); g.stroke(); } }
+
+// ---- 3 held out
+async function heldOut(best, opps, used) { const r = rng(777), rand = Array.from({ length: 16 }, () => randProbe(r)), S = 16, T = 1500;
+  $('held').innerHTML = '<div class="note">running…</div>'; const a = await score([best], opps, S, T, 1e6 + 1), b = await score(rand, opps, S, T, 1e6 + 1);
+  const bm = a.fit[0].ms, rm = b.fit.flatMap((f) => f.ms), d = mean(bm) - mean(rm), se = Math.sqrt(sd(bm) ** 2 / bm.length + sd(rm) ** 2 / rm.length), ok = d > 2 * se;
+  const code = btoa(JSON.stringify({ v: 1, g: [best.g.r, best.g.t], s: best.seed.map((i) => [0, 1, 2].map((k) => +B.pos[3 * i + k].toFixed(4))) }));
+  $('held').innerHTML = `<table><tr><th></th><th>margin (points)</th><th>± 1 SE</th><th>matches</th></tr>` +
+    `<tr><td>trained best (r ${best.g.r}, t ${best.g.t})</td><td>${d + mean(rm) >= 0 ? '+' : ''}${pct(mean(bm))}</td><td>${pct(sd(bm) / Math.sqrt(bm.length))}</td><td>${bm.length}</td></tr>` +
+    `<tr><td>random probes</td><td>${mean(rm) >= 0 ? '+' : ''}${pct(mean(rm))}</td><td>${pct(sd(rm) / Math.sqrt(rm.length))}</td><td>${rm.length}</td></tr></table>` +
+    `<div class="note"><span class="${ok ? 'ok' : 'bad'}">${ok ? 'The random baseline loses' : 'The random baseline does NOT lose'}</span>: the difference is ${pct(d)} points, 2 SE = ${pct(2 * se)}.
+     Budget used: ${(used / 1000).toFixed(1)} GPU-s, so <b>${(100 * mean(bm) / (used / 1000)).toFixed(2)}</b> held-out margin points per GPU-second.</div>` +
+    `<div class="row"><a href="./#board=${B.id}&probe=${encodeURIComponent(code)}">open the trained probe in the probe builder →</a></div><div class="note">share code: <code>${code}</code></div>`;
+  window.__held = { best: mean(bm), rand: mean(rm), d, se, ok, code }; }
+window.__ready = true;
+</script></body></html>
