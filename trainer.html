@@ -20,7 +20,7 @@
   .note { color:var(--dim); font-size:12px; margin-top:8px; } .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
   canvas { width:100%; height:180px; display:block; background:#0f1215; border:1px solid var(--line); border-radius:4px; margin-top:10px; }
   #gview { height:380px; cursor:grab; } #gbar { height:18px; margin-top:6px; } .legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:2px 16px; margin-top:8px; font-size:12px; font-variant-numeric:tabular-nums; }
-  .legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; } .legend .gone { color:#5c636d; text-decoration:line-through; }
+  .hidden { display:none; } .legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; } .legend .gone { color:#5c636d; text-decoration:line-through; }
   code { font:11px ui-monospace,monospace; color:#c5ccd6; word-break:break-all; }
  .orbit { position:absolute; top:10px; right:10px; z-index:5; font:12px system-ui,sans-serif; color:#d9dde3; background:#14171ccc; border:1px solid #3a4b5e; border-radius:999px; padding:4px 11px; cursor:pointer; }
   figure { margin:0; position:relative; }
@@ -44,7 +44,9 @@
 
   <section><h2>2 · Train</h2>
     <div class="grid">
-      <label><span>opponents</span><select id="opps" multiple size="4"></select></label>
+      <div><label><span>opponents</span><select id="opps" multiple size="5"></select></label>
+        <div class="row"><input id="tcode" placeholder="paste a player code to train against" style="flex:1;min-width:0;font:11px ui-monospace,monospace;background:#1c2027;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px"><button id="tload">add as opponent</button></div>
+        <div class="note" id="tcodeNote">A player code (from the probe builder) plays from its own seed. A cell both seeds claim stays the opponent's, so a probe cannot win by sitting on it.</div></div>
       <div>
         <label><span>population</span><input id="pop" type="number" value="32" min="8" max="256"></label>
         <label><span>seeds per probe</span><input id="seeds" type="number" value="4" min="1" max="32"></label>
@@ -69,7 +71,7 @@
     <figure data-live><canvas id="gview"></canvas><button class="orbit" id="gorbit" title="pause or resume the slow turn">⏸ orbit</button></figure><canvas id="gbar"></canvas>
     <div class="row"><label style="width:auto"><input id="gon" type="checkbox" checked> play the game while training</label>
       <label style="width:auto"><span style="width:auto">ticks per frame</span><select id="gspeed" style="width:70px"><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
-      <span id="gtick" class="dim"></span></div>
+      <span id="gtick" class="dim"></span><button id="gcont" class="hidden">▶ continue</button></div>
     <div id="glegend" class="legend"></div></section>
 
   <section><h2>3 · Held out: the best against random probes</h2>
@@ -78,7 +80,7 @@
     <div id="held"></div></section>
 </main>
 <script type="module">
-import { boardFromFlat, clumpAt, farClump } from './board.mjs';
+import { boardFromFlat, clumpAt, farClump, encodePlayer, decodePlayer } from './board.mjs';
 import { makeSim, BASE, rng } from './lichens.mjs';
 import { getDevice, Engine } from './gpu/sim.mjs';
 import { makeView, hex } from './view.mjs';
@@ -86,7 +88,10 @@ import { makeView, hex } from './view.mjs';
 const $ = (id) => document.getElementById(id), IDX = await (await fetch('boards/index.json')).json();
 const LIB = [{ name: 'plain (0, 0)', g: { r: 0, t: 0 } }, { name: 'resister (1, 0)', g: { r: 1, t: 0 } }, { name: 'tolerator (0, 1)', g: { r: 0, t: 1 } }, { name: 'half and half (.5, .5)', g: { r: 0.5, t: 0.5 } }];
 const SEEDMAX = 12, TAIL_FRAC = 0.2;
-LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; e.selected = true; $('opps').append(e); });
+// opponents: the library (a genome on a clump at the far side of each probe's seed), or a player code (its own genome and seed; 11-25)
+const OPPS = LIB.map((o) => ({ name: o.name, g: o.g, seed: null }));
+const oppOption = (o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; e.selected = true; $('opps').append(e); };
+OPPS.forEach(oppOption);
 IDX.boards.filter((b) => b.conv).forEach((b) => { const o = document.createElement('option'); o.value = b.id; o.textContent = `${b.name} · ${b.run.N.toLocaleString()} cells`; $('bsel').append(o); });
 
 let GPU = null, B = null, engines = new Map();
@@ -99,7 +104,15 @@ $('gate').disabled = true;
       (k < 12 ? `Trying again in 5 s (${k + 1} of 12)…` : `Gave up: close this tab, wait a minute, and open the page again.`) + `</span>`; if (k < 12) await new Promise((r) => setTimeout(r, 5000)); } } })();
 async function loadBoard(id) { const d = await (await fetch(`boards/${id}.json`)).json(); B = boardFromFlat(d.cells, d.E); B.id = id; engines = new Map();
   $('binfo').textContent = `${B.n.toLocaleString()} cells at 1/${B.E}. Opponents grow from a 12-cell clump around the cell farthest from your seed's centre, as in the probe builder.`; }
-$('bsel').onchange = async () => { await loadBoard(+$('bsel').value); game.reset(true); }; await loadBoard(+$('bsel').value);
+// a player code is positions, so a board change re-snaps it to the new board's cells
+const resnap = () => OPPS.forEach((o) => { if (o.code) { const d = decodePlayer(B, o.code, SEEDMAX); o.g = d.g; o.seed = d.seed; } });
+$('bsel').onchange = async () => { await loadBoard(+$('bsel').value); resnap(); game.reset(true); }; await loadBoard(+$('bsel').value);
+function addCodeOpp(code) { try { const d = decodePlayer(B, code, SEEDMAX), o = { name: `player code (r ${d.g.r.toFixed(2)}, t ${d.g.t.toFixed(2)})`, g: d.g, seed: d.seed, code: code.replace(/\s+/g, '') };
+    const k = OPPS.findIndex((x) => x.code === o.code); if (k >= 0) { $('opps').options[k].selected = true; } else { OPPS.push(o); oppOption(o, OPPS.length - 1); }
+    $('tcodeNote').innerHTML = `Added: <b>${o.name}</b>, ${o.seed.length} cells at its own place. Selected opponents are highlighted; ctrl-click to change the selection.`; }
+  catch (e) { $('tcodeNote').innerHTML = '<span class="bad">That code did not load.</span>'; } }
+$('tload').onclick = () => addCodeOpp($('tcode').value);
+{ const h = new URLSearchParams(location.hash.slice(1)).get('opp'); if (h) { const c = h.replace(/ /g, '+'); $('tcode').value = c; addCodeOpp(c); } }
 const engine = (n) => { const k = n; if (!engines.has(k)) { engines.clear(); engines.set(k, new Engine(GPU.dev, B, n)); } return engines.get(k); };
 
 // ---- shared scoring, identical to the probe builder: sample every 10 ticks after T - tail, mean share of the board
@@ -138,7 +151,9 @@ function mutate(pr, r) { const g = { r: pr.g.r + (r() - 0.5) * 0.16, t: pr.g.t +
   else if (u < 0.6) { const have = new Set(seed), moves = 1 + Math.floor(r() * 3);
     for (let m = 0; m < moves; m++) { const k = Math.floor(r() * seed.length), nb = B.adj[seed[k]]; if (!nb.length) continue; const v = nb[Math.floor(r() * nb.length)]; if (!have.has(v)) { have.delete(seed[k]); seed[k] = v; have.add(v); } } }
   return { g, seed }; }
-function specsFor(probes, opps, S) { const spec = []; for (const p of probes) { const oc = farClump(B, p.seed, SEEDMAX); for (const o of opps) for (let s = 0; s < S; s++) spec.push({ genomes: [p.g, LIB[o].g], cells: [p.seed, oc] }); } return spec; }
+function specsFor(probes, opps, S) { const spec = []; for (const p of probes) { const far = farClump(B, p.seed, SEEDMAX);
+    for (const oi of opps) { const o = OPPS[oi], oc = o.seed || far, os = new Set(oc), mine = o.seed ? p.seed.filter((c) => !os.has(c)) : p.seed;   // a shared cell stays the code's
+      for (let s = 0; s < S; s++) spec.push({ genomes: [p.g, o.g], cells: [mine, oc] }); } } return spec; }
 async function score(probes, opps, S, T, seed) { const spec = specsFor(probes, opps, S), E = engine(spec.length), r = await E.run(spec, { T, tail: Math.max(10, Math.round(T * TAIL_FRAC)), seed });
   const per = opps.length * S; return { ms: r.ms, fit: probes.map((_, i) => { const rs = r.results.slice(i * per, (i + 1) * per); return { margin: mean(rs.map((o) => o.you - o.opp)), ms: rs.map((o) => o.you - o.opp) }; }) }; }
 let stop = false, hist = [];
@@ -167,13 +182,13 @@ function drawChart() { const c = $('chart'), dpr = devicePixelRatio || 1, w = c.
 async function heldOut(best, opps, used) { const r = rng(777), rand = Array.from({ length: 16 }, () => randProbe(r)), S = 16, T = 1500;
   $('held').innerHTML = '<div class="note">running…</div>'; const a = await score([best], opps, S, T, 1e6 + 1), b = await score(rand, opps, S, T, 1e6 + 1);
   const bm = a.fit[0].ms, rm = b.fit.flatMap((f) => f.ms), d = mean(bm) - mean(rm), se = Math.sqrt(sd(bm) ** 2 / bm.length + sd(rm) ** 2 / rm.length), ok = d > 2 * se;
-  const code = btoa(JSON.stringify({ v: 1, g: [best.g.r, best.g.t], s: best.seed.map((i) => [0, 1, 2].map((k) => +B.pos[3 * i + k].toFixed(4))) }));
+  const code = encodePlayer(B, best.g, best.seed), vs = opps.map((i) => OPPS[i]).find((o) => o.code);
   $('held').innerHTML = `<table><tr><th></th><th>margin (points)</th><th>± 1 SE</th><th>matches</th></tr>` +
     `<tr><td>trained best (r ${best.g.r}, t ${best.g.t})</td><td>${d + mean(rm) >= 0 ? '+' : ''}${pct(mean(bm))}</td><td>${pct(sd(bm) / Math.sqrt(bm.length))}</td><td>${bm.length}</td></tr>` +
     `<tr><td>random probes</td><td>${mean(rm) >= 0 ? '+' : ''}${pct(mean(rm))}</td><td>${pct(sd(rm) / Math.sqrt(rm.length))}</td><td>${rm.length}</td></tr></table>` +
     `<div class="note"><span class="${ok ? 'ok' : 'bad'}">${ok ? 'The random baseline loses' : 'The random baseline does NOT lose'}</span>: the difference is ${pct(d)} points, 2 SE = ${pct(2 * se)}.
      Budget used: ${(used / 1000).toFixed(1)} GPU-s, so <b>${(100 * mean(bm) / (used / 1000)).toFixed(2)}</b> held-out margin points per GPU-second.</div>` +
-    `<div class="row"><a href="./#board=${B.id}&probe=${encodeURIComponent(code)}">open the trained probe in the probe builder →</a></div><div class="note">share code: <code>${code}</code></div>`;
+    `<div class="row"><a href="./#board=${B.id}&probe=${encodeURIComponent(code)}${vs ? `&opp=${encodeURIComponent(vs.code)}` : ''}">open the trained probe in the probe builder${vs ? ', against the player code' : ''} →</a></div><div class="note">share code: <code>${code}</code></div>`;
   window.__held = { best: mean(bm), rand: mean(rm), d, se, ok, code }; }
 // ---- the in-training game (Doug 11-25: "waiting with nothing feels like dead space. like silence on the radio")
 // One CPU makeSim, stepped a few ticks per animation frame while the GPU trains (and after). Landers come from the training loop.
@@ -181,13 +196,21 @@ const game = (() => {
   const STOPS = ['#3a56c8', '#2b9fb0', '#69c46a', '#d8d44a', '#f7f1b0'].map(hex), EMPTY = hex('#262b33'), RED = hex('#e5484d');
   const rampc = (u) => { u = Math.max(0, Math.min(1, u)) * (STOPS.length - 1); const i = Math.min(STOPS.length - 2, Math.floor(u)), f = u - i; return STOPS[i].map((v, k) => v + (STOPS[i + 1][k] - v) * f); };
   const mixc = (a, b, f) => a.map((v, k) => v + (b[k] - v) * f);
-  const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [], round: 0 };
+  const G = { sim: null, landers: [], col: [], inf: [], held: [], peak: [], round: 0, win: [], paused: false, settledAt: 0, keepGoing: false };
+  // settled (Doug 11-25): pause when no lineage's share has moved more than SETTLE of the board over the last SETTLE_T ticks; ▶ continue plays on
+  const SETTLE = 0.005, SETTLE_T = 1000; G.SETTLE = SETTLE; G.SETTLE_T = SETTLE_T;
+  const unsettle = (keep) => { G.win = []; G.paused = false; G.settledAt = 0; G.keepGoing = keep; $('gcont').classList.add('hidden'); };
+  $('gcont').onclick = () => unsettle(true);
+  function settleCheck() { const k = G.sim.k; if (!G.win.length || k - G.win.at(-1).k >= 100) G.win.push({ k, held: G.held.slice() });
+    while (G.win.length > 1 && G.win[1].k <= k - SETTLE_T) G.win.shift(); const old = G.win[0]; if (G.keepGoing || k - old.k < SETTLE_T) return;
+    const move = Math.max(...G.held.map((v, i) => Math.abs(v - old.held[i]))) / G.sim.N; G.lastMove = move;
+    if (move <= SETTLE) { G.paused = true; G.settledAt = k; $('gcont').classList.remove('hidden'); } }
   const view = makeView($('gview'), (i) => { if (!G.sim) return EMPTY; const g = G.sim.G[i]; return g < 0 ? EMPTY : G.sim.Inf[i] ? G.inf[g] : G.col[g]; });
   view.setBoard(B); $('gorbit').onclick = () => { view.spin = !view.spin; $('gorbit').textContent = view.spin ? '⏸ orbit' : '▶ orbit'; };
   const recolour = () => { const n = G.landers.length, g0 = G.landers[0]?.gen || 1, g1 = G.landers.at(-1)?.gen || 1;
     G.col = G.landers.map((l) => rampc(g1 > g0 ? (l.gen - g0) / (g1 - g0) : 0)); G.inf = G.col.map((c) => mixc(c, RED, 0.65)); };
   const same = (a, b) => a && b && a.g.r === b.g.r && a.g.t === b.g.t && a.seed.length === b.seed.length && a.seed.every((v, i) => v === b.seed[i]);
-  G.reset = (boardChanged) => { G.sim = null; G.landers = []; G.held = []; G.peak = []; G.round = 0; recolour(); if (boardChanged) view.setBoard(B); view.dirty = true; legend(); };
+  G.reset = (boardChanged) => { unsettle(false); G.sim = null; G.landers = []; G.held = []; G.peak = []; G.round = 0; recolour(); if (boardChanged) view.setBoard(B); view.dirty = true; legend(); };
   G.land = (best, gen, used) => { if (!$('gon').checked) return; const last = G.landers.at(-1), pr = { g: { ...best.g }, seed: best.seed.slice() };
     if (same(last, pr)) return;
     G.landers.push({ ...pr, gen, gpus: used / 1000, fit: best.fit }); G.round++;
@@ -195,7 +218,7 @@ const game = (() => {
     const r = rng(7919 * G.round), want = new Map(); G.landers.forEach((l, i) => l.seed.forEach((c) => { if (!want.has(c)) want.set(c, []); want.get(c).push(i); }));
     const cells = G.landers.map(() => []); for (const [c, ls] of want) cells[ls[Math.floor(r() * ls.length)]].push(c);
     G.sim = makeSim(B.adj, BASE, null, { seed: 20261125 + G.round, inf0: 0, lineages: G.landers.map((l) => l.g), seeds: cells.map((cs, i) => ({ lineage: i, cells: cs })) });
-    G.peak = G.landers.map(() => 0); recolour(); tally(); legend(); };
+    G.peak = G.landers.map(() => 0); unsettle(false); recolour(); tally(); legend(); };
   function tally() { const c = new Array(G.landers.length).fill(0), s = G.sim; for (let i = 0; i < s.N; i++) { const g = s.G[i]; if (g >= 0) c[g]++; }
     G.held = c; c.forEach((v, i) => { if (v > G.peak[i]) G.peak[i] = v; }); }
   function bar() { const c = $('gbar'), dpr = devicePixelRatio || 1, w = c.clientWidth * dpr, h = c.clientHeight * dpr; c.width = w; c.height = h; const g = c.getContext('2d');
@@ -205,11 +228,12 @@ const game = (() => {
     const alive = G.held.filter((v) => v > 0).length;
     el.innerHTML = show.map(({ l, i }) => `<div class="${G.held[i] ? '' : 'gone'}"><span class="sw" style="background:rgb(${G.col[i].map(Math.round).join(',')})"></span>gen ${l.gen} · r ${l.g.r} t ${l.g.t} · holds <b>${pct(G.held[i] / N)}%</b> (round peak ${pct(G.peak[i] / N)}%)</div>`).join('') +
       (hidden ? `<div class="dim">… and ${hidden} more in between</div>` : '') + `<div class="dim">${G.landers.length} bests so far · ${alive} still on the board this round</div>`;
-    bar(); $('gtick').textContent = `round ${G.round} · tick ${G.sim.k}`; }
+    bar(); $('gtick').innerHTML = `round ${G.round} · tick ${G.sim.k}` + (G.paused ? ` · <b>settled at tick ${G.settledAt}</b>: no share moved more than ${100 * SETTLE} points in the last ${SETTLE_T} ticks` : ''); }
   let n = 0;
-  function frame() { if (G.sim) { const k = +$('gspeed').value; for (let i = 0; i < k; i++) G.sim.step(); n += k; if (n >= 10) { n = 0; tally(); legend(); } view.dirty = true; }
+  function frame() { if (G.sim && !G.paused) { const k = +$('gspeed').value; for (let i = 0; i < k; i++) G.sim.step(); n += k; if (n >= 10) { n = 0; tally(); settleCheck(); legend(); } view.dirty = true; }
     if (view.dirty || view.spin) view.draw(); requestAnimationFrame(frame); }
   requestAnimationFrame(frame); legend(); G.view = view; window.__game = G; return G;
 })();
+window.__t = { specsFor, OPPS };   // for the headless tests
 window.__ready = true;
 </script></body></html>

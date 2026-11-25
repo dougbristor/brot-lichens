@@ -50,3 +50,15 @@ export function parityClasses(B) {
   let touching = 0; for (let i = 0; i < B.n; i++) for (const j of B.adj[i]) if (of[i] === of[j]) touching++;
   return { cls, of, touching };
 }
+// Player codes (11-25, shared by the probe builder and the trainer): base64 of {v:1, g:[r,t], s:[[x,y,z]…]}. The seed is stored as positions,
+// so a code loads on any board: each point snaps to its nearest cell, and points that snap together are regrown from the snapped cells' neighbours.
+// Whitespace (a wrapped paste) is ignored. decodePlayer throws on a bad code.
+export function encodePlayer(B, g, seed) { return btoa(JSON.stringify({ v: 1, g: [g.r, g.t], s: seed.map((i) => [0, 1, 2].map((d) => +B.pos[3 * i + d].toFixed(4))) })); }
+export function nearestCell(B, x, y, z) { let best = 0, bd = Infinity; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] - x) ** 2 + (B.pos[3 * i + 1] - y) ** 2 + (B.pos[3 * i + 2] - z) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
+export function decodePlayer(B, code, k = 12) {
+  const o = JSON.parse(atob(String(code).replace(/\s+/g, ''))); if (o.v !== 1 || !Array.isArray(o.g) || !Array.isArray(o.s)) throw new Error('not a player code');
+  const g = { r: Math.min(1, Math.max(0, +o.g[0] || 0)), t: 0 }; g.t = Math.min(1 - g.r, Math.max(0, +o.g[1] || 0));
+  const want = Math.min(k, o.s.length), got = [...new Set(o.s.slice(0, k).map((p) => nearestCell(B, p[0], p[1], p[2])))];
+  const have = new Set(got), q = [...got]; while (got.length < want && q.length) { const u = q.shift(); for (const v of B.adj[u]) if (!have.has(v) && got.length < want) { have.add(v); got.push(v); q.push(v); } }
+  return { g, seed: got };
+}

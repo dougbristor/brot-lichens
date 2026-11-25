@@ -89,8 +89,11 @@ still works). The ODE uses F = I + eps(1 − I). With eps = 0 the refactored cod
 ## Player codes (11-25)
 A player = genome + seed, as one base64 code (`{v:1, g:[r,t], s:[[x,y,z]…]}`; the seed is stored as positions and snapped to the nearest cells of the board
 it is loaded on). In the probe builder: **Player code · share or load** (paste, press load: it becomes yours), or choose **a player code…** as the opponent
-to play one code against another (a cell both seeds claim goes to you). Links: `#board=<id>&probe=<code>&opp=<code>` (either may be left out).
-Whitespace from a wrapped paste is ignored. The trainer still trains against the library opponents only.
+to play one code against another. Links: `#board=<id>&probe=<code>&opp=<code>` (either may be left out). Whitespace from a wrapped paste is ignored.
+**The trainer can train against a code**: paste it under opponents ("add as opponent"), or open `trainer.html#opp=<code>`. A code plays from its own seed,
+and **a cell both seeds claim stays the code's**, in the trainer and the probe builder alike (otherwise a probe learns to sit on it and erase it;
+checked: a probe placed exactly on the code keeps 0 of 12 cells). First run, 10 GPU-s against the gate's test probe as a code (r .8 t .2 at cell 0):
+best r 0.47 t 0, held out **+12.1 ± 1.5** vs random −19.4 ± 1.0. `decodePlayer` / `encodePlayer` live in `board.mjs`, shared by both pages.
 
 ## Rest and orbit (11-25, Doug)
 Both pages load fable's `rest.js` (vendored unchanged in `lib/rest/`, pinned): after 60 s with no viewer input the page rests (every animation loop
@@ -142,6 +145,8 @@ the last round keeps going. Colour by generation (blue first, yellow latest), re
   plants (wrong genome, wrong cells) fire, and runs that never land are byte-exact with the old code.
 - Cost: the GPU time per generation with the game on is 2555 ms vs 2543 ms off (+0.5%, the main thread shares the wait). Training is unchanged (same held-out).
 - A show, not a ranking: a round is one seed and often short. The ranking is the held-out check.
+- **Settled** (Doug 11-25): the game pauses and says "settled at tick N" when no lineage's share has moved more than 0.5 points over the last 1000 ticks;
+  **▶ continue** plays on without pausing again until the next round. First run: the last round settled at tick 23664 (it is slow, not trivial).
 
 **Stop and reload (11-25, Doug in Firefox: a reload did not stop a run, and the next load said 'Not enough memory left').** The engine used to queue a whole
 generation on the GPU at once, and a reload cannot cancel GPU work already sent. Now it waits for each 50-tick chunk (cost ~3%: 2.68 vs 2.60 s per

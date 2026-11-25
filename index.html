@@ -92,7 +92,7 @@
     <div class="row" style="margin-top:12px"><label>spin</label><input type="checkbox" id="spin" checked></div>
   </aside></div>
 <script type="module">
-import { graphOf, stats, farClump } from './board.mjs';
+import { graphOf, stats, farClump, encodePlayer, decodePlayer } from './board.mjs';
 import { makeSim, BASE, rng } from './lichens.mjs';
 
 const $ = (id) => document.getElementById(id), cv = $('cv'), ctx = cv.getContext('2d');
@@ -167,25 +167,20 @@ const pr = { g: { r: 0.5, t: 0.5 }, seed: [], opp: 0, sim: null, live: false, hi
 const YOU = hex('#4c9be8'), OPP = hex('#e8a33c');
 LIB.forEach((o, i) => { const e = document.createElement('option'); e.value = i; e.textContent = o.name; $('opp').append(e); });
 { const e = document.createElement('option'); e.value = 'code'; e.textContent = 'a player code…'; $('opp').append(e); }
-function nearestCell(B, x, y, z) { let best = 0, bd = Infinity; for (let i = 0; i < B.n; i++) { const d = (B.pos[3 * i] - x) ** 2 + (B.pos[3 * i + 1] - y) ** 2 + (B.pos[3 * i + 2] - z) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
 // the opponent: a library genome on a clump at the far side (as the GPU trainer does, board.mjs), or a loaded player code with its own seed (11-25)
-function oppSeed() { if (pr.opp === 'code') return pr.oppP ? pr.oppP.seed.filter((i) => !pr.seed.includes(i)) : []; return farClump(st.board, pr.seed, SEEDMAX); }
+function oppSeed() { if (pr.opp === 'code') return pr.oppP ? pr.oppP.seed : []; return farClump(st.board, pr.seed, SEEDMAX); }
+const mySeed = () => (pr.opp === 'code' ? pr.seed.filter((i) => !oppCells.has(i)) : pr.seed);   // a cell both claim stays the code's (as in the trainer)
 const oppGenome = () => (pr.opp === 'code' ? pr.oppP?.g || { r: 0, t: 0 } : LIB[pr.opp].g);
 let oppCells = new Set();
 function probeColour(B, i) {
   if (pr.sim) { const g = pr.sim.G[i]; if (g < 0) return EMPTY; const c = g === 0 ? YOU : OPP; return pr.sim.Inf[i] ? mixc(c, RED, 0.6) : c; }
-  if (pr.seedSet.has(i)) return YOU; if (oppCells.has(i)) return OPP; const c = B.s.comp[i] !== B.s.big ? MAG : ramp((B.deg[i] - 1) / 20); return c.map((v) => v * 0.4);
+  if (pr.opp === 'code' && oppCells.has(i)) return OPP; if (pr.seedSet.has(i)) return YOU; if (oppCells.has(i)) return OPP; const c = B.s.comp[i] !== B.s.big ? MAG : ramp((B.deg[i] - 1) / 20); return c.map((v) => v * 0.4);
 }
 pr.seedSet = new Set();
 function effects() { const { r, t } = pr.g, b = (1 - BASE.costR * r) * (1 - BASE.costT * t);
   return `catches the mould <b>×${(1 - BASE.effR * r).toFixed(2)}</b> · harmed when infected <b>×${(1 - BASE.effT * t).toFixed(2)}</b> · grows <b>×${b.toFixed(3)}</b>`; }
-function probeCode() { const B = st.board; return btoa(JSON.stringify({ v: 1, g: [pr.g.r, pr.g.t], s: pr.seed.map((i) => [0, 1, 2].map((d) => +B.pos[3 * i + d].toFixed(4))) })); }
-function decodeCode(code) { const o = JSON.parse(atob(code.replace(/\s+/g, ''))); if (o.v !== 1) throw 0; const B = st.board;   // whitespace from a wrapped paste is dropped
-    const g = { r: Math.min(1, Math.max(0, +o.g[0])), t: 0 }; g.t = Math.min(1 - g.r, Math.max(0, +o.g[1]));
-    const want = Math.min(SEEDMAX, o.s.length), got = [...new Set(o.s.slice(0, SEEDMAX).map((p) => nearestCell(B, p[0], p[1], p[2])))];
-    // points that snap to the same cell on this board's shape: regrow the lost ones from the snapped cells' neighbours, so the count holds
-    const have = new Set(got), q = [...got]; while (got.length < want && q.length) { const u = q.shift(); for (const v of B.adj[u]) if (!have.has(v) && got.length < want) { have.add(v); got.push(v); q.push(v); } }
-    return { g, seed: got }; }
+function probeCode() { return encodePlayer(st.board, pr.g, pr.seed); }
+function decodeCode(code) { return decodePlayer(st.board, code, SEEDMAX); }   // board.mjs, shared with the trainer
 function loadCode(code, quiet) { try { const d = decodeCode(code); stopMatch(); pr.g = d.g; pr.seed = d.seed; probeUI(); }
   catch (e) { if (!quiet) $('presult').textContent = 'That code did not load.'; } }
 function loadOpp(code) { try { pr.oppP = decodeCode(code); stopMatch(); probeUI(); } catch (e) { pr.oppP = null; probeUI(); $('ocodeNote').textContent = 'That code did not load.'; } }
@@ -193,8 +188,8 @@ function probeUI() { if (!st.board) return; pr.seedSet = new Set(pr.seed); oppCe
   $('gr').value = pr.g.r; $('gt').value = pr.g.t; $('grv').textContent = pr.g.r.toFixed(2); $('gtv').textContent = pr.g.t.toFixed(2); $('geff').innerHTML = effects();
   $('seedn').textContent = `${pr.seed.length} / ${SEEDMAX} cells placed`; pr.code = pr.seed.length ? probeCode() : ''; $('pcode').value = pr.code;
   const oc = pr.opp === 'code'; $('pOppCode').classList.toggle('hidden', !oc); $('ocodeNote').classList.toggle('hidden', !oc);
-  if (oc) { const o = pr.oppP, lost = o ? o.seed.length - oppCells.size : 0;
-    $('ocodeNote').innerHTML = o ? `Opponent: r <b>${o.g.r.toFixed(2)}</b>, t <b>${o.g.t.toFixed(2)}</b>, ${oppCells.size} cells at its own place${lost ? ` (${lost} shared with your seed go to you)` : ''}.` : 'Paste a code and press load opponent.'; }
+  if (oc) { const o = pr.oppP, lost = o ? pr.seed.length - mySeed().length : 0;
+    $('ocodeNote').innerHTML = o ? `Opponent: r <b>${o.g.r.toFixed(2)}</b>, t <b>${o.g.t.toFixed(2)}</b>, ${oppCells.size} cells at its own place${lost ? `. ${lost} of your cells sit on it and stay its` : ''}.` : 'Paste a code and press load opponent.'; }
   $('mplay').disabled = $('mscore').disabled = !pr.seed.length || (oc && !pr.oppP); st.dirty = true; }
 function toggleSeed(i) { stopMatch(); const k = pr.seed.indexOf(i); if (k >= 0) pr.seed.splice(k, 1); else if (pr.seed.length < SEEDMAX) pr.seed.push(i); probeUI(); }
 $('gr').oninput = () => { pr.g.r = +$('gr').value; if (pr.g.r + pr.g.t > 1) pr.g.t = +(1 - pr.g.r).toFixed(2); probeUI(); };
@@ -204,7 +199,7 @@ $('opp').onchange = () => { pr.opp = $('opp').value === 'code' ? 'code' : +$('op
 $('oload').onclick = () => loadOpp($('ocode').value);
 $('pcopy').onclick = () => navigator.clipboard?.writeText($('pcode').value);
 $('pload').onclick = () => loadCode($('pcode').value);
-function newMatch(seed, mine = pr.g) { return makeSim(st.board.adj, P, null, { seed, inf0: 0, lineages: [mine, oppGenome()], seeds: [{ lineage: 0, cells: pr.seed }, { lineage: 1, cells: [...oppCells] }] }); }
+function newMatch(seed, mine = pr.g) { return makeSim(st.board.adj, P, null, { seed, inf0: 0, lineages: [mine, oppGenome()], seeds: [{ lineage: 0, cells: mySeed() }, { lineage: 1, cells: [...oppCells] }] }); }
 function held(sim) { const c = [0, 0]; let y = 0, n = 0; for (let i = 0; i < sim.N; i++) { const g = sim.G[i]; if (g >= 0) { c[g]++; n++; y += sim.Inf[i]; } } return { k: sim.k, you: c[0] / sim.N, opp: c[1] / sim.N, mould: n ? y / n : 0 }; }
 function verdict(rows) { const tail = rows.filter((o) => o.k > MATCH_T - TAIL), m = (f) => tail.reduce((a, o) => a + f(o), 0) / Math.max(1, tail.length); return { you: m((o) => o.you), opp: m((o) => o.opp) }; }
 function stopMatch() { pr.sim = null; pr.live = false; $('mplay').textContent = '▶ match'; $('mtick').textContent = ''; st.dirty = true; }
